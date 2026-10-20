@@ -1,0 +1,8 @@
+{
+  "name": "Sales GTM Karawang",
+  "description": "Mobile-first field sales and Go-To-Market (GTM) application for sales representatives in Karawang to record daily store visits, store profiles, purchase orders, and non-purchase reasons.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

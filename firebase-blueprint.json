@@ -1,0 +1,135 @@
+{
+  "entities": {
+    "Area": {
+      "title": "Area",
+      "description": "Geographical sales area or district in Karawang.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the sales area or district."
+        }
+      }
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Master product catalog for Sales GTM Karawang.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Product name."
+        },
+        "price": {
+          "type": "number",
+          "description": "Product price."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Product unit of measure."
+        }
+      }
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Product supplier or principal information.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Supplier name."
+        }
+      }
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Customer store information in Karawang.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Store name."
+        },
+        "address": {
+          "type": "string",
+          "description": "Store address."
+        }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "Sales representative or administrative user account.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User email address."
+        },
+        "name": {
+          "type": "string",
+          "description": "User display name."
+        }
+      }
+    },
+    "Visit": {
+      "title": "Visit",
+      "description": "Daily sales representative store visit record.",
+      "type": "object",
+      "properties": {
+        "storeId": {
+          "type": "string",
+          "description": "Visited store identifier."
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of store visit."
+        }
+      }
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Purchase order recorded during a store visit.",
+      "type": "object",
+      "properties": {
+        "storeId": {
+          "type": "string",
+          "description": "Store identifier placing the order."
+        },
+        "total": {
+          "type": "number",
+          "description": "Total order amount."
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/Area/{areaId}": {
+      "schema": "Area",
+      "description": "Existing Area collection in sales-gtm-karawang."
+    },
+    "/Product/{productId}": {
+      "schema": "Product",
+      "description": "Existing Product collection in sales-gtm-karawang."
+    },
+    "/Supplier/{supplierId}": {
+      "schema": "Supplier",
+      "description": "Existing Supplier collection in sales-gtm-karawang."
+    },
+    "/Stores/{storeId}": {
+      "schema": "Store",
+      "description": "Existing Stores collection in sales-gtm-karawang."
+    },
+    "/Users/{userId}": {
+      "schema": "User",
+      "description": "Existing Users collection in sales-gtm-karawang."
+    },
+    "/Visits/{visitId}": {
+      "schema": "Visit",
+      "description": "Existing Visits collection in sales-gtm-karawang."
+    },
+    "/Orders/{orderId}": {
+      "schema": "Order",
+      "description": "Existing Orders collection in sales-gtm-karawang."
+    }
+  }
+}

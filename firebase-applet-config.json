@@ -1,0 +1,12 @@
+{
+  "projectId": "sales-gtm-karawang",
+  "appId": "1:358750544673:web:91ae60c2ddc6cb8907d460",
+  "apiKey": "AIzaSyB4c6Bab6V1YlqlEQdPH13_Sv4KQbkqi28",
+  "authDomain": "sales-gtm-karawang.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "sales-gtm-karawang.firebasestorage.app",
+  "messagingSenderId": "358750544673",
+  "measurementId": "",
+  "oAuthClientId": "358750544673-7ua2dvno21mtc2ut9rlr4navm9dvdev4.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
+}

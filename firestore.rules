@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /Product/{productId} {
+      allow get, list: if true;
+    }
+
+    match /Area/{areaId} {
+      allow get, list: if true;
+    }
+
+    match /Supplier/{supplierId} {
+      allow get, list: if true;
+    }
+
+    match /Stores/{storeId} {
+      allow get, list: if true;
+    }
+
+    match /Users/{userId} {
+      allow get, list: if isSignedIn();
+    }
+
+    match /Visits/{visitId} {
+      allow get, list: if isSignedIn();
+    }
+
+    match /Orders/{orderId} {
+      allow get, list: if isSignedIn();
+    }
+  }
+}

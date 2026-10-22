@@ -370,6 +370,8 @@ export default function App() {
       ...salesRep,
       name: name || 'GTM IFM Karawang',
       email: email,
+      dailyVisitTarget: 25,
+      dailyOrderTargetIdr: 2400000,
     };
   }, [session, currentUser, salesRep, userRole]);
   const [stores, setStores] = useState<Store[]>(INITIAL_STORES);
@@ -479,16 +481,57 @@ export default function App() {
     [liveProductDocs]
   );
 
-  // Filtered visits for selected date
+  // ISOLASI DATA SALES:
+  // Sales representative hanya dapat melihat record transaksi dan kunjungan miliknya sendiri.
+  // Role Admin dapat memonitor seluruh record transaksi dari semua sales representative di Karawang.
+  const visibleVisits = useMemo(() => {
+    if (userRole === 'admin') return visits;
+
+    const currentEmail = (
+      session?.email ||
+      currentUser?.email ||
+      activeSalesRep.email ||
+      ''
+    ).toLowerCase().trim();
+
+    const currentName = (
+      session?.displayName ||
+      currentUser?.displayName ||
+      activeSalesRep.name ||
+      ''
+    ).toLowerCase().trim();
+
+    const currentId = activeSalesRep.id;
+
+    return visits.filter((v) => {
+      const vEmail = (v.salesRepEmail || '').toLowerCase().trim();
+      const vName = (v.salesRepName || '').toLowerCase().trim();
+      const vId = v.salesRepId;
+
+      if (vEmail && currentEmail) {
+        return vEmail === currentEmail;
+      }
+      if (vId && currentId) {
+        return vId === currentId;
+      }
+      if (vName && currentName) {
+        return vName === currentName;
+      }
+      // Fallback: If legacy visit has neither, allow current representative
+      return true;
+    });
+  }, [visits, userRole, session, currentUser, activeSalesRep]);
+
+  // Filtered visits for selected date (sesuai isolasi peran)
   const visitsForDate = useMemo(
-    () => visits.filter((v) => v.date === selectedDate),
-    [visits, selectedDate]
+    () => visibleVisits.filter((v) => v.date === selectedDate),
+    [visibleVisits, selectedDate]
   );
 
   // Daily KPI metrics
   const kpiMetrics = useMemo(() => {
     const completedCount = visitsForDate.length;
-    const targetCount = salesRep.dailyVisitTarget;
+    const targetCount = activeSalesRep.dailyVisitTarget;
     const coveragePct = Math.min(
       100,
       Math.round((completedCount / Math.max(1, targetCount)) * 100)
@@ -560,27 +603,43 @@ export default function App() {
   };
 
   const handleSaveVisit = (newVisit: StoreVisit, newStore?: Store) => {
+    // Explicitly guarantee active sales rep identity is stamped onto visit and PO
+    const visitWithRep: StoreVisit = {
+      ...newVisit,
+      salesRepEmail: newVisit.salesRepEmail || activeSalesRep.email,
+      salesRepName: newVisit.salesRepName || activeSalesRep.name,
+      salesRepId: newVisit.salesRepId || activeSalesRep.id,
+      purchaseOrder: newVisit.purchaseOrder
+        ? {
+            ...newVisit.purchaseOrder,
+            salesRepEmail: newVisit.purchaseOrder.salesRepEmail || activeSalesRep.email,
+            salesRepName: newVisit.purchaseOrder.salesRepName || activeSalesRep.name,
+            salesRepId: newVisit.purchaseOrder.salesRepId || activeSalesRep.id,
+          }
+        : undefined,
+    };
+
     if (newStore) {
       setStores((prev) => [newStore, ...prev]);
     } else {
       setStores((prev) =>
         prev.map((s) =>
-          s.id === newVisit.storeId
+          s.id === visitWithRep.storeId
             ? {
                 ...s,
-                lastVisitDate: newVisit.date,
-                lastOutcome: newVisit.outcome,
+                lastVisitDate: visitWithRep.date,
+                lastOutcome: visitWithRep.outcome,
               }
             : s
         )
       );
     }
 
-    setVisits((prev) => [newVisit, ...prev]);
+    setVisits((prev) => [visitWithRep, ...prev]);
     setRouteStops((prev) =>
       prev.map((stop) =>
-        stop.storeId === newVisit.storeId && !stop.completedVisitId
-          ? { ...stop, completedVisitId: newVisit.id }
+        stop.storeId === visitWithRep.storeId && !stop.completedVisitId
+          ? { ...stop, completedVisitId: visitWithRep.id }
           : stop
       )
     );
@@ -588,6 +647,18 @@ export default function App() {
 
   const handleAddStore = (newStore: Store) => {
     setStores((prev) => [newStore, ...prev]);
+  };
+
+  // Kewenangan Admin: Menghapus pesanan tertentu
+  const handleDeleteOrder = (orderOrVisitId: string) => {
+    setVisits((prev) =>
+      prev.filter(
+        (v) =>
+          v.id !== orderOrVisitId &&
+          v.purchaseOrder?.id !== orderOrVisitId &&
+          v.purchaseOrder?.poNumber !== orderOrVisitId
+      )
+    );
   };
 
   const handleUpdateOrderStatus = (
@@ -614,6 +685,20 @@ export default function App() {
             }
           : v
       )
+    );
+  };
+
+  const handleClearAllSalesRecords = () => {
+    setVisits([]);
+    setRouteStops((prev) =>
+      prev.map((stop) => ({ ...stop, completedVisitId: undefined }))
+    );
+    setStores((prev) =>
+      prev.map((s) => ({
+        ...s,
+        lastVisitDate: undefined,
+        lastOutcome: undefined,
+      }))
     );
   };
 
@@ -670,7 +755,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setActiveSection('stores')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
+                className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
                   activeSection === 'stores'
                     ? 'bg-blue-700 text-white shadow-xs'
                     : 'hover:text-blue-900 hover:bg-blue-50'
@@ -727,19 +812,19 @@ export default function App() {
                     : 'hover:text-blue-900 hover:bg-blue-50'
                 }`}
               >
-                Order ({visits.filter((v) => v.purchaseOrder).length})
+                Order ({visibleVisits.filter((v) => v.purchaseOrder).length})
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveSection('stores')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
+                className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
                   activeSection === 'stores'
                     ? 'bg-blue-700 text-white shadow-xs'
                     : 'hover:text-blue-900 hover:bg-blue-50'
                 }`}
               >
-                Stores ({stores.length})
+                Direktori Toko ({stores.length})
               </button>
 
               <button
@@ -819,13 +904,13 @@ export default function App() {
           activeSection === 'admin' ? 'max-w-7xl' : 'max-w-5xl'
         } mx-auto px-4 sm:px-6 pt-5 space-y-5`}
       >
-        {/* 1. DASHBOARD SALES VIEW - Khusus Role Sales */}
+        {/* 1. DASHBOARD SALES VIEW - Khusus Role Sales (Hanya Melihat Data Sales yang Login) */}
         {userRole === 'sales' && activeSection === 'sales_dashboard' && (
           <SalesDashboardView
             salesRep={activeSalesRep}
             currentUserEmail={activeSalesRep.email}
             currentUserName={activeSalesRep.name}
-            visits={visits}
+            visits={visibleVisits}
             stores={stores}
             routeStops={routeStops}
             selectedDate={selectedDate}
@@ -835,7 +920,7 @@ export default function App() {
           />
         )}
 
-        {/* 2. DASHBOARD ADMIN VIEW - Khusus Role Admin */}
+        {/* 2. DASHBOARD ADMIN VIEW - Khusus Role Admin (Dapat Melihat Seluruh Record dari Semua Sales) */}
         {userRole === 'admin' && activeSection === 'admin' && (
           <AdminDashboardView
             currentUserEmail={currentUser?.email}
@@ -847,8 +932,10 @@ export default function App() {
             areaList={areaList}
             onOpenLoginModal={() => setIsLoginModalOpen(true)}
             onUpdateOrderStatus={handleUpdateOrderStatus}
+            onDeleteOrder={handleDeleteOrder}
             onOpenVisitRecorder={() => handleOpenVisitRecorder()}
             onSignOut={handleSignOut}
+            onClearAllSalesRecords={handleClearAllSalesRecords}
           />
         )}
 
@@ -861,9 +948,9 @@ export default function App() {
             onOpenFirebaseSheet={() => setIsFirebaseSheetOpen(true)}
             onSignOut={handleSignOut}
             onUpdateName={handleUpdateProfileName}
-            totalVisitsCount={visits.length}
-            totalOrdersCount={visits.filter((v) => v.outcome === VisitOutcome.ORDER).length}
-            totalSalesIdr={visits.reduce(
+            totalVisitsCount={visibleVisits.length}
+            totalOrdersCount={visibleVisits.filter((v) => v.outcome === VisitOutcome.ORDER).length}
+            totalSalesIdr={visibleVisits.reduce(
               (sum, v) => sum + (v.purchaseOrder?.netAmountIdr || 0),
               0
             )}
@@ -895,7 +982,7 @@ export default function App() {
                   <span aria-hidden="true"> · </span>
                   <span className="font-mono">{ACTIVE_FIREBASE_PROJECT_ID}</span>
                   <span aria-hidden="true"> · </span>
-                  <span>{visits.length} Total Riwayat Kunjungan</span>
+                  <span>{visibleVisits.length} Total Riwayat Kunjungan</span>
                 </p>
               </div>
 
@@ -1166,14 +1253,15 @@ export default function App() {
           </>
         )}
 
-        {/* 6. TOKO (STORES) DIRECTORY VIEW */}
+        {/* 6. STORE DIRECTORY VIEW */}
         {activeSection === 'stores' && (
           <StoreDirectoryView
             stores={stores}
-            visits={visits}
+            visits={userRole === 'admin' ? visits : visibleVisits}
             areaList={areaList}
             onStartVisitForStore={(storeId) => handleOpenVisitRecorder(storeId)}
             onAddStore={handleAddStore}
+            onOpenNewStoreModal={() => handleOpenVisitRecorder()}
           />
         )}
 
@@ -1182,8 +1270,9 @@ export default function App() {
           <OrdersAndBarriersView
             mode="orders"
             userRole={userRole}
-            visits={visits}
+            visits={userRole === 'admin' ? visits : visibleVisits}
             onUpdateOrderStatus={handleUpdateOrderStatus}
+            onDeleteOrder={handleDeleteOrder}
             onStartFollowUpVisit={(storeId) => handleOpenVisitRecorder(storeId)}
             onOpenNewVisit={() => handleOpenVisitRecorder()}
           />
@@ -1193,8 +1282,9 @@ export default function App() {
           <OrdersAndBarriersView
             mode="no_orders"
             userRole={userRole}
-            visits={visits}
+            visits={userRole === 'admin' ? visits : visibleVisits}
             onUpdateOrderStatus={handleUpdateOrderStatus}
+            onDeleteOrder={handleDeleteOrder}
             onStartFollowUpVisit={(storeId) => handleOpenVisitRecorder(storeId)}
             onOpenNewVisit={() => handleOpenVisitRecorder()}
           />

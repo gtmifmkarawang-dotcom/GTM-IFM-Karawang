@@ -13,6 +13,7 @@ import {
   Plus,
   ShieldCheck,
   ShoppingBag,
+  Trash2,
   Truck,
   X,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ interface OrdersAndBarriersViewProps {
   userRole?: 'sales' | 'admin';
   visits: StoreVisit[];
   onUpdateOrderStatus: (visitId: string, nextStatus: OrderStatus) => void;
+  onDeleteOrder?: (orderOrVisitId: string) => void;
   onStartFollowUpVisit: (storeId: string) => void;
   onOpenNewVisit: () => void;
 }
@@ -38,6 +40,7 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
   userRole = 'sales',
   visits,
   onUpdateOrderStatus,
+  onDeleteOrder,
   onStartFollowUpVisit,
   onOpenNewVisit,
 }) => {
@@ -283,6 +286,29 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>Setujui (Approve)</span>
+                      </button>
+                    )}
+
+                    {userRole === 'admin' && onDeleteOrder && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (
+                            window.confirm(
+                              `Apakah Anda yakin ingin menghapus pesanan ${
+                                visit.purchaseOrder?.poNumber || ''
+                              } (${visit.storeName})?`
+                            )
+                          ) {
+                            onDeleteOrder(visit.id);
+                          }
+                        }}
+                        className="min-h-[40px] px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-bold transition-all shadow-2xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                        title="Hapus pesanan ini (Kewenangan Admin)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Hapus</span>
                       </button>
                     )}
 
@@ -573,6 +599,30 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                           </button>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {userRole === 'admin' && onDeleteOrder && (
+                    <div className="pt-4 border-t border-slate-200 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Apakah Anda yakin ingin menghapus pesanan ${
+                                selectedOrderVisit.purchaseOrder?.poNumber || ''
+                              } (${selectedOrderVisit.storeName})?`
+                            )
+                          ) {
+                            onDeleteOrder(selectedOrderVisit.id);
+                            setSelectedOrderVisit(null);
+                          }
+                        }}
+                        className="min-h-[42px] px-3.5 py-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-2xs"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-600" />
+                        <span>Hapus Pesanan Ini (Kewenangan Admin)</span>
+                      </button>
                     </div>
                   )}
                 </div>

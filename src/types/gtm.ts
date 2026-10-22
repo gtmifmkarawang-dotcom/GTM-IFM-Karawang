@@ -107,6 +107,7 @@ export interface PurchaseOrderItem {
   companySubtotalIdr?: number;
   storeSubtotalIdr?: number;
   marginIdr?: number;
+  supplier?: string;
 }
 
 export interface PurchaseOrder {
@@ -118,6 +119,7 @@ export interface PurchaseOrder {
   district: string;
   salesRepId: string;
   salesRepName: string;
+  salesRepEmail?: string;
   createdAt: string;
   date: string;
   items: PurchaseOrderItem[];
@@ -151,6 +153,7 @@ export interface StoreVisit {
   checkOutTime: string; // HH:mm
   salesRepId: string;
   salesRepName: string;
+  salesRepEmail?: string;
   storeId: string;
   storeCode: string;
   storeName: string;

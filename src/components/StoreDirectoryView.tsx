@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Building2,
   CheckCircle2,
   ChevronRight,
   ExternalLink,
   MapPin,
+  Navigation,
   Phone,
   Plus,
   Search,
@@ -25,6 +27,7 @@ interface StoreDirectoryViewProps {
   onStartVisitForStore: (storeId: string) => void;
   onAddStore: (newStore: Store) => void;
   areaList?: string[];
+  onOpenNewStoreModal?: () => void;
 }
 
 export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
@@ -33,6 +36,7 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
   onStartVisitForStore,
   onAddStore,
   areaList,
+  onOpenNewStoreModal,
 }) => {
   const availableAreas = useMemo(() => {
     return areaList && areaList.length > 0 ? areaList : KARAWANG_DISTRICTS;
@@ -54,6 +58,8 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
   const [address, setAddress] = useState('');
   const [creditLimit, setCreditLimit] = useState('5000000');
   const [notes, setNotes] = useState('');
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [isGettingGps, setIsGettingGps] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,18 +86,42 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
     });
   }, [stores, selectedDistrict, selectedCategory, searchQuery]);
 
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Browser tidak mendukung pendeteksian lokasi GPS.');
+      return;
+    }
+    setIsGettingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoordinates({
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+        });
+        setIsGettingGps(false);
+      },
+      (err) => {
+        console.warn('Geolocation error:', err);
+        setIsGettingGps(false);
+        // Fallback default coordinates in Karawang center
+        setCoordinates({ lat: -6.3048, lng: 107.3025 });
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const handleCreateStore = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     if (!name.trim() || !ownerName.trim() || !address.trim()) {
-      setFormError('Store Name, Owner Name, and Full Address are required.');
+      setFormError('Nama Toko, Nama Pemilik, dan Alamat Lengkap wajib diisi.');
       return;
     }
 
     const codeNum = String(stores.length + 1).padStart(3, '0');
     const newStore: Store = {
       id: `store-krw-${Date.now()}`,
-      storeCode: `KRW-STR-${codeNum}`,
+      storeCode: `KRW-NOO-${codeNum}`,
       name: name.trim(),
       ownerName: ownerName.trim(),
       phone: phone.trim() || '0812-0000-0000',
@@ -99,74 +129,80 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
       district,
       subdistrict: subdistrict.trim() || district,
       address: address.trim(),
-      coordinates: {
-        lat: Number((-6.308 + (Math.random() - 0.5) * 0.05).toFixed(4)),
-        lng: Number((107.305 + (Math.random() - 0.5) * 0.05).toFixed(4)),
-      },
-      creditLimitIdr: Number(creditLimit) || 3000000,
+      coordinates: coordinates || { lat: -6.3048, lng: 107.3025 },
+      creditLimitIdr: Number(creditLimit) || 5000000,
       isActive: true,
-      registeredAt: '2026-09-30',
-      notes: notes.trim() || undefined,
+      registeredAt: new Date().toISOString().split('T')[0],
+      notes: notes.trim() || 'Pendaftaran toko baru (NOO) via Direktori Toko Karawang.',
     };
 
     onAddStore(newStore);
+    setIsAddModalOpen(false);
+
+    // Reset form
     setName('');
     setOwnerName('');
     setPhone('');
-    setSubdistrict('');
     setAddress('');
     setNotes('');
-    setIsAddModalOpen(false);
+    setCoordinates(null);
   };
 
-  const storeVisitsForActive = useMemo(() => {
-    if (!activeStore) return [];
-    return visits.filter((v) => v.storeId === activeStore.id);
-  }, [activeStore, visits]);
-
   return (
-    <div className="space-y-5">
-      {/* Header & Add Store CTA */}
+    <div className="space-y-6">
+      {/* Header section with branding & stats */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">
-            Karawang Store Directory
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-slate-900">
+              Direktori Toko & Outlet
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-blue-100 text-blue-900 border border-blue-200">
+              {stores.length} Toko Terdaftar
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            {stores.length} toko terdaftar di {availableAreas.length} Area
+            PT Indofood Fortuna Makmur (IFM) · Master data outlet terdaftar di Area Karawang
           </p>
         </div>
+
         <button
           type="button"
-          onClick={() => setIsAddModalOpen(true)}
-          className="min-h-[44px] px-4 py-2.5 rounded-xl bg-teal-700 text-white text-xs font-semibold hover:bg-teal-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-xs"
+          onClick={() => {
+            if (onOpenNewStoreModal) {
+              onOpenNewStoreModal();
+            } else {
+              setIsAddModalOpen(true);
+            }
+          }}
+          className="min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-xs"
         >
           <Plus className="w-4 h-4" />
-          <span>Register New Store</span>
+          <span>Daftarkan Toko Baru (NOO)</span>
         </button>
       </div>
 
-      {/* Search & District / Category Filters */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="relative md:col-span-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search store name, code, owner..."
-              className="w-full min-h-[44px] pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
-            />
-          </div>
+      {/* Filter and Search Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari nama toko, kode outlet, pemilik, atau alamat..."
+            className="w-full min-h-[44px] pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700 focus:bg-white"
+          />
+        </div>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <select
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
-              className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700"
+              className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
             >
-              <option value="ALL">Semua Area</option>
+              <option value="ALL">Semua Area ({availableAreas.length} Area)</option>
               {availableAreas.map((dist) => (
                 <option key={dist} value={dist}>
                   {dist}
@@ -179,9 +215,9 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700"
+              className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
             >
-              <option value="ALL">All Store Categories</option>
+              <option value="ALL">Semua Kategori Toko</option>
               {Object.values(StoreCategory).map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
@@ -193,16 +229,40 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
       </div>
 
       {/* Store List */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 divide-y divide-slate-100 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/90 divide-y divide-slate-100 overflow-hidden shadow-2xs">
         {filteredStores.length === 0 ? (
-          <div className="p-10 text-center">
-            <StoreIcon className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-800">
-              No matching stores found
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              Try clearing district filters or register a new outlet in Karawang.
-            </p>
+          <div className="p-12 text-center space-y-3">
+            <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-700 mx-auto flex items-center justify-center border border-blue-100">
+              <Building2 className="w-7 h-7" />
+            </div>
+            <div>
+              <p className="text-base font-bold text-slate-800">
+                {stores.length === 0
+                  ? 'Belum Ada Toko Terdaftar'
+                  : 'Tidak ada toko yang sesuai filter'}
+              </p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                {stores.length === 0
+                  ? 'Belum ada toko yang diinput. Klik tombol di bawah untuk mendaftarkan outlet pertama Anda (New Outlet Opening - NOO).'
+                  : 'Coba ubah kata kunci pencarian atau bersihkan filter area kecamatan.'}
+              </p>
+            </div>
+            {stores.length === 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenNewStoreModal) {
+                    onOpenNewStoreModal();
+                  } else {
+                    setIsAddModalOpen(true);
+                  }
+                }}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Daftarkan Toko Baru (NOO) Sekarang</span>
+              </button>
+            )}
           </div>
         ) : (
           filteredStores.map((store) => {
@@ -220,26 +280,25 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveStore(store)}
-                  className="text-left flex items-start gap-3.5 min-w-0 flex-1"
+                  className="text-left flex items-start gap-3.5 min-w-0 flex-1 cursor-pointer"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center shrink-0 mt-0.5 border border-blue-100">
                     <StoreIcon className="w-5 h-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-slate-900 truncate">
                       {store.name}
                     </p>
-                    {/* Clean unboxed metadata with typographic separators */}
                     <p className="text-xs text-slate-500 mt-0.5 truncate">
-                      <span className="font-mono">{store.storeCode}</span>
-                      <span aria-hidden="true"> · </span>
-                      <span>{store.district}</span>
+                      <span className="font-mono text-slate-700 font-semibold">{store.storeCode}</span>
                       <span aria-hidden="true"> · </span>
                       <span>{store.category}</span>
                       <span aria-hidden="true"> · </span>
-                      <span>{store.ownerName}</span>
+                      <span>{store.district}</span>
+                      <span aria-hidden="true"> · </span>
+                      <span>Pemilik: {store.ownerName}</span>
                     </p>
-                    <p className="text-xs text-slate-500 mt-1 truncate">
+                    <p className="text-xs text-slate-400 mt-0.5 truncate">
                       {store.address}
                     </p>
                   </div>
@@ -247,33 +306,20 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
 
                 <div className="flex items-center justify-between sm:justify-end gap-3 pl-13 sm:pl-0 shrink-0">
                   <div className="text-left sm:text-right">
-                    <p className="text-xs font-mono font-semibold text-slate-900 tabular-nums">
-                      {totalOrderValue > 0
-                        ? formatIdr(totalOrderValue)
-                        : 'No PO Today'}
+                    <p className="text-xs text-slate-500">
+                      {storeVisits.length} kunjungan
                     </p>
-                    <p className="text-[11px] text-slate-500">
-                      {store.lastVisitDate
-                        ? `Last visit ${store.lastVisitDate}`
-                        : 'Not visited yet'}
+                    <p className="text-xs font-mono font-bold text-slate-900">
+                      {totalOrderValue > 0 ? formatIdr(totalOrderValue) : 'Rp 0'}
                     </p>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => onStartVisitForStore(store.id)}
-                    className="min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors whitespace-nowrap"
+                    className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800 transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
                   >
-                    Check-In
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveStore(store)}
-                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100"
-                    aria-label="Inspect store details"
-                  >
-                    <ChevronRight className="w-4 h-4" />
+                    Kunjungi
                   </button>
                 </div>
               </div>
@@ -282,209 +328,173 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
         )}
       </div>
 
-      {/* Store Detail Bottom Sheet / Drawer */}
+      {/* Store Detail Inspection Modal */}
       {activeStore && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
-          <div className="w-full max-w-xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 max-h-[88vh] flex flex-col overflow-hidden">
-            <div className="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2.5 sm:hidden shrink-0" />
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
                   {activeStore.name}
                 </h3>
-                <p className="text-xs text-slate-500 font-mono">
-                  {activeStore.storeCode} · {activeStore.district}
+                <p className="text-xs font-mono text-slate-500">
+                  {activeStore.storeCode} · {activeStore.category}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveStore(null)}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                <div className="flex items-start gap-2.5">
-                  <User className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-slate-500">Owner / PIC</p>
-                    <p className="font-semibold text-slate-900 mt-0.5">
-                      {activeStore.ownerName}
-                    </p>
-                  </div>
+            <div className="p-6 space-y-4 overflow-y-auto text-xs">
+              <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
+                <div>
+                  <span className="text-slate-500 block mb-0.5">Pemilik / PIC</span>
+                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-blue-700" />
+                    {activeStore.ownerName}
+                  </span>
                 </div>
-                <div className="flex items-start gap-2.5">
-                  <Phone className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-slate-500">Phone / WhatsApp</p>
-                    <p className="font-mono font-semibold text-slate-900 mt-0.5">
-                      {activeStore.phone}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5 sm:col-span-2">
-                  <MapPin className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-slate-500">Address & Coordinates</p>
-                    <p className="font-medium text-slate-900 mt-0.5">
-                      {activeStore.address} ({activeStore.subdistrict},{' '}
-                      {activeStore.district})
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <a
-                        href={`https://www.google.com/maps?q=${activeStore.coordinates.lat},${activeStore.coordinates.lng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-mono text-xs text-blue-700 hover:text-blue-900 font-semibold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200"
-                        title="Buka lokasi toko di Google Maps"
-                      >
-                        <span>GPS: {activeStore.coordinates.lat}, {activeStore.coordinates.lng}</span>
-                        <ExternalLink className="w-3 h-3 text-blue-600" />
-                      </a>
-                      <span className="text-slate-400">·</span>
-                      <span className="font-mono text-xs text-slate-500">
-                        Limit: {formatIdr(activeStore.creditLimitIdr)}
-                      </span>
-                    </div>
-                  </div>
+                <div>
+                  <span className="text-slate-500 block mb-0.5">Nomor Telepon</span>
+                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-blue-700" />
+                    {activeStore.phone}
+                  </span>
                 </div>
               </div>
 
-              {activeStore.notes && (
-                <div className="text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                  <span className="font-semibold text-slate-800">Field Note: </span>
-                  {activeStore.notes}
+              <div>
+                <span className="text-slate-500 block mb-1">Alamat Lengkap</span>
+                <p className="text-slate-800 flex items-start gap-1.5 font-medium leading-relaxed">
+                  <MapPin className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                  {activeStore.address}, {activeStore.subdistrict}, {activeStore.district}
+                </p>
+              </div>
+
+              {activeStore.coordinates && (
+                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 flex items-center justify-between">
+                  <div className="font-mono text-slate-700">
+                    <p className="font-bold text-blue-900">Koordinat GPS</p>
+                    <p>{activeStore.coordinates.lat}, {activeStore.coordinates.lng}</p>
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps?q=${activeStore.coordinates.lat},${activeStore.coordinates.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-lg bg-blue-700 text-white font-semibold flex items-center gap-1 text-[11px] hover:bg-blue-800"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Buka Maps</span>
+                  </a>
                 </div>
               )}
 
-              <div>
-                <h4 className="text-xs font-semibold text-slate-800 mb-2">
-                  Recent Visit History ({storeVisitsForActive.length})
-                </h4>
-                {storeVisitsForActive.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-4 text-center border border-dashed border-slate-200 rounded-xl">
-                    No visits recorded for this store yet.
+              {activeStore.notes && (
+                <div>
+                  <span className="text-slate-500 block mb-1">Catatan Tambahan</span>
+                  <p className="text-slate-700 bg-amber-50/70 p-3 rounded-xl border border-amber-200/60 italic">
+                    &quot;{activeStore.notes}&quot;
                   </p>
-                ) : (
-                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl">
-                    {storeVisitsForActive.map((v) => (
-                      <div key={v.id} className="p-3 text-xs flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-semibold text-slate-900">
-                            {v.date} · {v.checkInTime} WIB
-                          </p>
-                          <p className="text-slate-500 mt-0.5">
-                            {v.outcome === VisitOutcome.ORDER
-                              ? `Purchase Order ${v.purchaseOrder?.poNumber}`
-                              : `No Order: ${v.noPurchaseDetail?.reasonLabel}`}
-                          </p>
-                        </div>
-                        <span className="font-mono font-semibold text-slate-900 tabular-nums">
-                          {v.outcome === VisitOutcome.ORDER && v.purchaseOrder
-                            ? formatIdr(v.purchaseOrder.netAmountIdr)
-                            : 'Rp 0'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
-            <div className="p-4 border-t border-slate-200 flex items-center justify-end gap-3">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setActiveStore(null)}
-                className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
               >
-                Close
+                Tutup
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const id = activeStore.id;
+                  const sId = activeStore.id;
                   setActiveStore(null);
-                  onStartVisitForStore(id);
+                  onStartVisitForStore(sId);
                 }}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-teal-700 text-white text-xs font-semibold hover:bg-teal-800 flex items-center gap-2"
+                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 cursor-pointer shadow-xs"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Start Visit at {activeStore.name}</span>
+                Mulai Kunjungan Toko
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Register New Store Modal */}
+      {/* Add Store (NOO) Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
-          <div className="w-full max-w-lg bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2.5 sm:hidden shrink-0" />
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
-                  Register New Store (NOO)
+                  Daftarkan Toko Baru (NOO)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Add a new retail or wholesale store to Karawang territory
+                  New Outlet Opening · PT Indofood Fortuna Makmur (IFM)
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateStore} className="p-5 overflow-y-auto space-y-3.5">
+            <form onSubmit={handleCreateStore} className="flex-1 overflow-y-auto p-6 space-y-4">
               {formError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
+                <div className="p-3 text-xs bg-red-50 text-red-800 rounded-xl border border-red-200">
                   {formError}
                 </div>
               )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Store Name *
+                  Nama Toko / Outlet *
                 </label>
                 <input
                   type="text"
+                  required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Toko Sembako Jaya Abadi"
-                  className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
+                  placeholder="Contoh: Toko Sinar Rezeki"
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700 focus:bg-white"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Owner Name *
+                    Nama Pemilik / PIC *
                   </label>
                   <input
                     type="text"
+                    required
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder="e.g., Bpk. Wahyu"
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
+                    placeholder="Contoh: H. Ahmad Subardjo"
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700 focus:bg-white"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Phone / WhatsApp
+                    Nomor WhatsApp / Telp
                   </label>
                   <input
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="0813-xxxx-xxxx"
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
+                    placeholder="0812-xxxx-xxxx"
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700 focus:bg-white"
                   />
                 </div>
               </div>
@@ -492,103 +502,103 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Store Category
+                    Kategori Outlet
                   </label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value as StoreCategory)}
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700"
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
                   >
-                    {Object.values(StoreCategory).map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                    {Object.values(StoreCategory).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Area *
+                    Area Kecamatan
                   </label>
                   <select
                     value={district}
                     onChange={(e) => setDistrict(e.target.value)}
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700"
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
                   >
-                    {availableAreas.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
+                    {availableAreas.map((dist) => (
+                      <option key={dist} value={dist}>
+                        {dist}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Subdistrict (Kelurahan / Desa)
-                  </label>
-                  <input
-                    type="text"
-                    value={subdistrict}
-                    onChange={(e) => setSubdistrict(e.target.value)}
-                    placeholder="e.g., Adiarsa Barat"
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Recommended Credit Limit (IDR)
-                  </label>
-                  <input
-                    type="number"
-                    value={creditLimit}
-                    onChange={(e) => setCreditLimit(e.target.value)}
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
-                  />
-                </div>
-              </div>
-
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Full Street Address *
+                  Alamat Lengkap Toko *
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  required
+                  rows={2}
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Jl. Raya Tuparev No. 88..."
-                  className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
+                  placeholder="Jl. Raya / No Rumah / Patokan toko..."
+                  className="w-full p-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700 focus:bg-white"
                 />
               </div>
 
+              {/* Titik Koordinat GPS */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Store Delivery / Merchandising Notes
-                </label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional operational remarks..."
-                  className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Titik Koordinat GPS
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGetLocation}
+                    disabled={isGettingGps}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-900 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    <Navigation className={`w-3.5 h-3.5 ${isGettingGps ? 'animate-spin' : ''}`} />
+                    <span>{isGettingGps ? 'Mendeteksi...' : 'Ambil Titik GPS Lokasi'}</span>
+                  </button>
+                </div>
+                {coordinates ? (
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between text-xs">
+                    <span className="font-mono text-emerald-800 font-semibold">
+                      {coordinates.lat}, {coordinates.lng}
+                    </span>
+                    <a
+                      href={`https://www.google.com/maps?q=${coordinates.lat},${coordinates.lng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-700 font-bold hover:underline inline-flex items-center gap-1"
+                    >
+                      <span>Cek di Google Maps</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Klik tombol di atas untuk mencatat koordinat toko saat Anda berada di lokasi.
+                  </p>
+                )}
               </div>
 
-              <div className="pt-2 flex items-center justify-end gap-3">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
                 >
-                  Cancel
+                  Batal
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] px-5 py-2 rounded-xl bg-teal-700 text-white text-xs font-semibold hover:bg-teal-800"
+                  className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors shadow-xs cursor-pointer"
                 >
-                  Save Store Profile
+                  Simpan Toko Baru
                 </button>
               </div>
             </form>

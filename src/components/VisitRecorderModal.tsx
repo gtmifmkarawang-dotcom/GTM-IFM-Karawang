@@ -134,7 +134,9 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
   }, [productCatalog]);
 
   const [step, setStep] = useState<1 | 2>(1);
-  const [storeMode, setStoreMode] = useState<'existing' | 'new'>('existing');
+  const [storeMode, setStoreMode] = useState<'existing' | 'new'>(
+    stores.length === 0 ? 'new' : 'existing'
+  );
   const [selectedStoreId, setSelectedStoreId] = useState<string>(
     preselectedStoreId || stores[0]?.id || ''
   );
@@ -288,6 +290,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
         companySubtotalIdr: companySubtotal,
         storeSubtotalIdr: storeSubtotal,
         marginIdr: margin,
+        supplier: 'PT Indofood Fortuna Makmur (IFM)',
       });
     });
     return items;
@@ -573,6 +576,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
       checkOutTime: checkOutStr,
       salesRepId: salesRep.id,
       salesRepName: salesRep.name,
+      salesRepEmail: salesRep.email,
       storeId: targetStore.id,
       storeCode: targetStore.storeCode,
       storeName: targetStore.name,
@@ -597,6 +601,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
               district: targetStore.district,
               salesRepId: salesRep.id,
               salesRepName: salesRep.name,
+              salesRepEmail: salesRep.email,
               createdAt: now.toISOString(),
               date: selectedDate,
               items: activeOrderItems,
@@ -757,7 +762,15 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                     </div>
 
                     <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 border border-blue-100 rounded-2xl bg-white shadow-xs">
-                      {filteredStores.map((store) => {
+                      {filteredStores.length === 0 ? (
+                        <div className="p-6 text-center text-slate-500 text-xs">
+                          <p className="font-semibold text-slate-700">Belum ada toko yang terdaftar</p>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            Silakan pilih tab &quot;+ Daftarkan Toko Baru (NOO)&quot; di atas untuk input toko baru.
+                          </p>
+                        </div>
+                      ) : (
+                        filteredStores.map((store) => {
                         const isSelected = store.id === selectedStoreId;
                         return (
                           <button
@@ -789,7 +802,8 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                             </div>
                           </button>
                         );
-                      })}
+                      })
+                    )}
                     </div>
                   </div>
                 ) : (

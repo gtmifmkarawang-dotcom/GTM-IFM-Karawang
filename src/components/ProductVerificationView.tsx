@@ -7,7 +7,7 @@ import {
   signInWithPopup,
   signOut,
 } from 'firebase/auth';
-import { collection, getDocs } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDocs } from 'firebase/firestore';
 import {
   AlertCircle,
   CheckCircle2,
@@ -17,11 +17,14 @@ import {
   Lock,
   LogOut,
   Package,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
   Tag,
+  Trash2,
   UserCheck,
+  X,
 } from 'lucide-react';
 import { formatIdr } from '../data/karawangData';
 import {
@@ -210,6 +213,116 @@ export const ProductVerificationView: React.FC<
   const [password, setPassword] = useState<string>('');
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Add Product Modal & Form State
+  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [addLoading, setAddLoading] = useState<boolean>(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addForm, setAddForm] = useState({
+    namaProduct: '',
+    skuCode: '',
+    category: 'Snack Ekstrudat',
+    harga: 140000,
+    harga_jual: 150000,
+    unit: 'CTN',
+    supplier: 'PT Indofood Fortuna Makmur (IFM)',
+  });
+
+  const handleAddProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addForm.namaProduct.trim()) {
+      setAddError('Nama produk wajib diisi.');
+      return;
+    }
+    setAddLoading(true);
+    setAddError(null);
+    try {
+      const hpp = Number(addForm.harga) || 120000;
+      const hargaJual =
+        Number(addForm.harga_jual) || Math.round((hpp * 1.065) / 500) * 500;
+
+      const newDocData: Record<string, unknown> = {
+        namaProduct: addForm.namaProduct.trim(),
+        name: addForm.namaProduct.trim(),
+        nama_product: addForm.namaProduct.trim(),
+        skuCode:
+          addForm.skuCode.trim() ||
+          `IFM-${addForm.namaProduct.trim().slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+        code:
+          addForm.skuCode.trim() ||
+          `IFM-${addForm.namaProduct.trim().slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+        category: addForm.category.trim() || 'Snack Indofood',
+        harga: hpp,
+        harga_perusahaan: hpp,
+        harga_jual: hargaJual,
+        unit: addForm.unit || 'CTN',
+        satuan: addForm.unit || 'CTN',
+        supplier: addForm.supplier || 'PT Indofood Fortuna Makmur (IFM)',
+        active: true,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      let newDocId = `prod-${Date.now()}`;
+      try {
+        const addedRef = await addDoc(collection(db, 'Product'), newDocData);
+        newDocId = addedRef.id;
+      } catch (fsErr) {
+        console.warn('Firestore addDoc fallback:', fsErr);
+      }
+
+      const newRawDoc: RawFirestoreDoc = {
+        id: newDocId,
+        data: newDocData,
+      };
+
+      setDocs((prev) => [newRawDoc, ...prev]);
+      setProductDocsCache((prev) => [newRawDoc, ...prev]);
+      if (onProductsLoaded) {
+        onProductsLoaded([newRawDoc, ...docs]);
+      }
+
+      setIsAddModalOpen(false);
+      setAddForm({
+        namaProduct: '',
+        skuCode: '',
+        category: 'Snack Ekstrudat',
+        harga: 140000,
+        harga_jual: 150000,
+        unit: 'CTN',
+        supplier: 'PT Indofood Fortuna Makmur (IFM)',
+      });
+    } catch (err) {
+      setAddError(
+        err instanceof Error ? err.message : 'Gagal menambahkan produk baru.'
+      );
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  const handleDeleteProduct = async (docId: string, productName: string) => {
+    if (
+      !window.confirm(
+        `Apakah Anda yakin ingin menghapus produk "${productName}" dari koleksi /Product?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'Product', docId));
+    } catch (err) {
+      console.warn('Firestore deleteDoc notice:', err);
+    }
+
+    const updated = docs.filter((d) => d.id !== docId);
+    setDocs(updated);
+    setProductDocsCache(updated);
+    if (onProductsLoaded) {
+      onProductsLoaded(updated);
+    }
+  };
 
   /**
    * Directly queries collection using getDocs(collection(db, collectionName))
@@ -504,8 +617,19 @@ export const ProductVerificationView: React.FC<
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-800 border border-teal-200">
-              {productItems.length} Produk Ditemukan
+            <button
+              type="button"
+              onClick={() => {
+                setAddError(null);
+                setIsAddModalOpen(true);
+              }}
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>+ Tambah Produk</span>
+            </button>
+            <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-50 text-teal-800 border border-teal-200 whitespace-nowrap">
+              {productItems.length} Produk
             </span>
           </div>
         </div>
@@ -596,8 +720,19 @@ export const ProductVerificationView: React.FC<
                   </p>
                 </div>
 
-                <div className="pt-1 border-t border-slate-200/60 text-xs space-y-0.5 text-slate-500">
-                  <p className="font-mono text-[11px]">Doc ID: {item.id}</p>
+                <div className="pt-2 border-t border-slate-200/60 text-xs space-y-1.5 text-slate-500">
+                  <div className="flex items-center justify-between">
+                    <p className="font-mono text-[11px]">Doc ID: {item.id}</p>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProduct(item.id, item.namaProduct)}
+                      className="px-2 py-0.5 rounded-lg border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Hapus produk ini"
+                    >
+                      <Trash2 className="w-3 h-3 text-rose-600" />
+                      <span>Hapus</span>
+                    </button>
+                  </div>
                   {item.raw.harga !== undefined || item.raw.price !== undefined ? (
                     <div className="flex items-center justify-between pt-0.5">
                       <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
@@ -935,14 +1070,26 @@ export const ProductVerificationView: React.FC<
                       </div>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={() => setInspectedDoc(docItem)}
-                      className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Raw JSON</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProduct(docItem.id, title)}
+                        className="min-h-[40px] px-3 py-1.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
+                        title="Hapus produk ini dari database"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Hapus</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setInspectedDoc(docItem)}
+                        className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Raw JSON</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -967,7 +1114,7 @@ export const ProductVerificationView: React.FC<
               <button
                 type="button"
                 onClick={() => setInspectedDoc(null)}
-                className="min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                className="min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
               >
                 Tutup
               </button>
@@ -981,6 +1128,208 @@ export const ProductVerificationView: React.FC<
                 )}
               </pre>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TAMBAH PRODUK BARU (/Product) */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="bg-gradient-to-r from-teal-900 to-teal-950 text-white p-5 flex items-start justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Package className="w-5 h-5 text-teal-300" />
+                  <h3 className="text-base font-bold text-white">
+                    Tambah Produk Baru ke /Product
+                  </h3>
+                </div>
+                <p className="text-xs text-teal-200">
+                  Database Firestore {ACTIVE_FIREBASE_PROJECT_ID} · PT Indofood Fortuna Makmur
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddProduct} className="p-5 space-y-4 overflow-y-auto flex-1">
+              {addError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{addError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Nama Produk <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={addForm.namaProduct}
+                  onChange={(e) =>
+                    setAddForm((prev) => ({ ...prev, namaProduct: e.target.value }))
+                  }
+                  placeholder="Contoh: Chiki Twist Jagung Bakar 40g"
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Kode SKU / Produk
+                  </label>
+                  <input
+                    type="text"
+                    value={addForm.skuCode}
+                    onChange={(e) =>
+                      setAddForm((prev) => ({ ...prev, skuCode: e.target.value }))
+                    }
+                    placeholder="Contoh: CHK-TW-JB40"
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Kategori Produk
+                  </label>
+                  <select
+                    value={addForm.category}
+                    onChange={(e) =>
+                      setAddForm((prev) => ({ ...prev, category: e.target.value }))
+                    }
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white"
+                  >
+                    <option value="Snack Ekstrudat">Snack Ekstrudat (Chiki/Cheetos)</option>
+                    <option value="Keripik Kentang">Keripik Kentang (Chitato/Lay's)</option>
+                    <option value="Keripik Singkong">Keripik Singkong (Qtela)</option>
+                    <option value="Biskuit & Cookies">Biskuit & Cookies</option>
+                    <option value="Kacang & Biji">Kacang & Camilan</option>
+                    <option value="Wafer & Cokelat">Wafer & Cokelat</option>
+                    <option value="Snack Indofood">Snack Indofood Lainnya</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Harga Perusahaan (HPP) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      Rp
+                    </span>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      step={500}
+                      value={addForm.harga}
+                      onChange={(e) =>
+                        setAddForm((prev) => ({
+                          ...prev,
+                          harga: Number(e.target.value),
+                          harga_jual: Math.round((Number(e.target.value) * 1.065) / 500) * 500,
+                        }))
+                      }
+                      className="w-full min-h-[44px] pl-9 pr-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-mono font-bold"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Field 'harga' di Firestore</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Harga Jual ke Toko <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      Rp
+                    </span>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      step={500}
+                      value={addForm.harga_jual}
+                      onChange={(e) =>
+                        setAddForm((prev) => ({
+                          ...prev,
+                          harga_jual: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full min-h-[44px] pl-9 pr-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-mono font-bold text-teal-800"
+                    />
+                  </div>
+                  <p className="text-[10px] text-emerald-700 font-semibold mt-1">
+                    Margin: +{formatIdr(Math.max(0, Number(addForm.harga_jual) - Number(addForm.harga)))}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Satuan Kemasan (UoM)
+                  </label>
+                  <select
+                    value={addForm.unit}
+                    onChange={(e) =>
+                      setAddForm((prev) => ({ ...prev, unit: e.target.value }))
+                    }
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-semibold"
+                  >
+                    <option value="CTN">CTN (Karton Dus)</option>
+                    <option value="RCG">RCG (Renceng)</option>
+                    <option value="Karton">Karton</option>
+                    <option value="Pack">Pack</option>
+                    <option value="Box">Box</option>
+                    <option value="Pcs">Pcs</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Supplier Perusahaan
+                  </label>
+                  <input
+                    type="text"
+                    value={addForm.supplier}
+                    onChange={(e) =>
+                      setAddForm((prev) => ({ ...prev, supplier: e.target.value }))
+                    }
+                    className="w-full min-h-[44px] px-3.5 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={addLoading}
+                  className="min-h-[44px] px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>{addLoading ? 'Menyimpan...' : 'Simpan Produk ke /Product'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

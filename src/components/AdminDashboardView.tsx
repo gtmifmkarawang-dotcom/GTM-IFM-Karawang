@@ -30,6 +30,7 @@ import {
   TrendingUp,
   UserCheck,
   Users,
+  Trash2,
 } from 'lucide-react';
 import { RawFirestoreDoc } from './ProductVerificationView';
 import { KARAWANG_DISTRICTS, formatIdr } from '../data/karawangData';
@@ -41,6 +42,7 @@ import {
   VisitOutcome,
 } from '../types/gtm';
 import { IndofoodSnackTimeLogo } from './IndofoodSnackTimeLogo';
+import { ExcelExportModal } from './ExcelExportModal';
 
 interface AdminDashboardViewProps {
   currentUserEmail?: string | null;
@@ -51,8 +53,10 @@ interface AdminDashboardViewProps {
   activeProductCatalog?: ProductSKU[];
   onOpenLoginModal?: () => void;
   onUpdateOrderStatus?: (orderId: string, status: OrderStatus) => void;
+  onDeleteOrder?: (orderOrVisitId: string) => void;
   onOpenVisitRecorder?: () => void;
   onSignOut?: () => void;
+  onClearAllSalesRecords?: () => void;
   areaList?: string[];
 }
 
@@ -65,10 +69,13 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   activeProductCatalog = [],
   onOpenLoginModal,
   onUpdateOrderStatus,
+  onDeleteOrder,
   onOpenVisitRecorder,
   onSignOut,
+  onClearAllSalesRecords,
   areaList,
 }) => {
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const availableAreas = useMemo(() => {
     return areaList && areaList.length > 0 ? areaList : KARAWANG_DISTRICTS;
   }, [areaList]);
@@ -197,24 +204,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       });
     });
 
-    // If no order items recorded yet, populate from active product catalog
-    if (map.size === 0 && activeProductCatalog.length > 0) {
-      activeProductCatalog.slice(0, 5).forEach((p, idx) => {
-        const dummyVolume = [24, 18, 14, 10, 8][idx] || 5;
-        const unitPrice = p.units[0]?.priceIdr || 114000;
-        map.set(p.id, {
-          name: p.name,
-          sku: p.skuCode,
-          qty: dummyVolume,
-          revenue: dummyVolume * unitPrice,
-        });
-      });
-    }
-
     const sorted = Array.from(map.values()).sort((a, b) => b.qty - a.qty);
     const maxQty = sorted[0]?.qty || 1;
     return { list: sorted, maxQty };
-  }, [filteredVisits, activeProductCatalog]);
+  }, [filteredVisits]);
 
   // 3. GRAFIK: Penjualan berdasarkan Nama Sales
   const salesByRepChart = useMemo(() => {
@@ -229,7 +222,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     >();
 
     filteredVisits.forEach((v) => {
-      const repName = v.salesRepName || 'Rizky Pratama';
+      const repName = v.salesRepName || 'Sales Representative';
       const existing = map.get(repName) || {
         salesName: repName,
         ordersCount: 0,
@@ -246,24 +239,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       }
       map.set(repName, existing);
     });
-
-    // Ensure common sales team are displayed if few recorded
-    if (!map.has('Budi Santoso')) {
-      map.set('Budi Santoso', {
-        salesName: 'Budi Santoso',
-        ordersCount: 3,
-        visitsCount: 5,
-        revenue: 1850000,
-      });
-    }
-    if (!map.has('Dimas Arya')) {
-      map.set('Dimas Arya', {
-        salesName: 'Dimas Arya',
-        ordersCount: 2,
-        visitsCount: 4,
-        revenue: 1420000,
-      });
-    }
 
     const list = Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
     const maxRevenue = Math.max(...list.map((r) => r.revenue), 1);
@@ -283,13 +258,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           v.purchaseOrder.totalStoreAmountIdr ?? v.purchaseOrder.netAmountIdr;
       }
       map.set(area, existing);
-    });
-
-    // Make sure prominent focus areas from collection Area are visualized
-    availableAreas.slice(0, 5).forEach((dist) => {
-      if (!map.has(dist)) {
-        map.set(dist, { area: dist, storeCount: 2, revenue: 950000 });
-      }
     });
 
     const list = Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
@@ -386,8 +354,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
             <button
               type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-xs font-black transition-all flex items-center gap-2 cursor-pointer shadow-md border border-emerald-400/30"
+              title="Download laporan sales dan visit toko dalam format Excel (.xls)"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+              <span>Ekspor Excel (.xls)</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleExportCSV}
-              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all border border-white/20 flex items-center gap-2 cursor-pointer shadow-xs"
+              className="px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all border border-white/20 flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Download className="w-4 h-4 text-amber-400" />
               <span>Ekspor CSV</span>
@@ -516,27 +494,34 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </p>
 
             <div className="space-y-3.5">
-              {topProductsChart.list.slice(0, 5).map((item, idx) => {
-                const percent = Math.round((item.qty / topProductsChart.maxQty) * 100);
-                return (
-                  <div key={item.sku || idx} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-800 truncate max-w-[180px]">
-                        {idx + 1}. {item.name}
-                      </span>
-                      <span className="font-mono font-bold text-blue-950">
-                        {item.qty} Unit ({formatIdr(item.revenue)})
-                      </span>
+              {topProductsChart.list.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  Belum ada data transaksi produk
+                </div>
+              ) : (
+                topProductsChart.list.slice(0, 5).map((item, idx) => {
+                  const percent = Math.round((item.qty / topProductsChart.maxQty) * 100);
+                  return (
+                    <div key={item.sku || idx} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-800 truncate max-w-[180px]">
+                          {idx + 1}. {item.name}
+                        </span>
+                        <span className="font-mono font-bold text-blue-950">
+                          {item.qty} Unit ({formatIdr(item.revenue)})
+                        </span>
+                      </div>
+                      <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-blue-700 to-amber-400 rounded-full transition-all duration-500"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-blue-700 to-amber-400 rounded-full transition-all duration-500"
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -565,31 +550,38 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </p>
 
             <div className="space-y-3.5">
-              {salesByRepChart.list.slice(0, 5).map((rep) => {
-                const percent = Math.round((rep.revenue / salesByRepChart.maxRevenue) * 100);
-                return (
-                  <div key={rep.salesName} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-800">
-                        {rep.salesName}
-                      </span>
-                      <span className="font-mono font-bold text-emerald-700">
-                        {formatIdr(rep.revenue)}
-                      </span>
+              {salesByRepChart.list.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  Belum ada data penjualan sales
+                </div>
+              ) : (
+                salesByRepChart.list.slice(0, 5).map((rep) => {
+                  const percent = Math.round((rep.revenue / salesByRepChart.maxRevenue) * 100);
+                  return (
+                    <div key={rep.salesName} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-800">
+                          {rep.salesName}
+                        </span>
+                        <span className="font-mono font-bold text-emerald-700">
+                          {formatIdr(rep.revenue)}
+                        </span>
+                      </div>
+                      <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-600 to-teal-400 rounded-full transition-all duration-500"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400">
+                        <span>{rep.visitsCount} Kunjungan</span>
+                        <span>{rep.ordersCount} Berhasil Order</span>
+                      </div>
                     </div>
-                    <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-600 to-teal-400 rounded-full transition-all duration-500"
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span>{rep.visitsCount} Kunjungan</span>
-                      <span>{rep.ordersCount} Berhasil Order</span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -616,30 +608,37 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </p>
 
             <div className="space-y-3.5">
-              {salesByAreaChart.list.slice(0, 5).map((area) => {
-                const percent = Math.round((area.revenue / salesByAreaChart.maxRevenue) * 100);
-                return (
-                  <div key={area.area} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-800 truncate">
-                        {area.area}
-                      </span>
-                      <span className="font-mono font-bold text-blue-950">
-                        {formatIdr(area.revenue)}
-                      </span>
+              {salesByAreaChart.list.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  <MapPin className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  Belum ada data penjualan per area
+                </div>
+              ) : (
+                salesByAreaChart.list.slice(0, 5).map((area) => {
+                  const percent = Math.round((area.revenue / salesByAreaChart.maxRevenue) * 100);
+                  return (
+                    <div key={area.area} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-800 truncate">
+                          {area.area}
+                        </span>
+                        <span className="font-mono font-bold text-blue-950">
+                          {formatIdr(area.revenue)}
+                        </span>
+                      </div>
+                      <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-500"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {area.storeCount} Toko dikunjungi
+                      </div>
                     </div>
-                    <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-500"
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {area.storeCount} Toko dikunjungi
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -663,6 +662,25 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {onClearAllSalesRecords && visits.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Apakah Anda yakin ingin menghapus semua record sales (kunjungan & pesanan)?'
+                    )
+                  ) {
+                    onClearAllSalesRecords();
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Hapus semua record sales"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Reset/Hapus Semua Record Sales</span>
+              </button>
+            )}
             <span className="text-xs text-slate-500">
               Total {filteredVisits.filter((v) => v.purchaseOrder).length} Pesanan
             </span>
@@ -683,10 +701,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredVisits
-                .filter((v) => v.purchaseOrder)
-                .slice(0, 8)
-                .map((visit) => {
+              {filteredVisits.filter((v) => v.purchaseOrder).length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                    <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    Belum ada transaksi pesanan yang tercatat
+                  </td>
+                </tr>
+              ) : (
+                filteredVisits
+                  .filter((v) => v.purchaseOrder)
+                  .slice(0, 8)
+                  .map((visit) => {
                   const po = visit.purchaseOrder!;
                   const companyAmount =
                     po.totalCompanyAmountIdr ??
@@ -740,33 +766,62 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {po.status !== OrderStatus.APPROVED && onUpdateOrderStatus && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onUpdateOrderStatus(po.id, OrderStatus.APPROVED)
-                            }
-                            title="Konfirmasi bahwa sales sudah menyetorkan uang hasil penjualan pesanan ini ke Admin"
-                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1"
-                          >
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>Setujui (Approve Setoran)</span>
-                          </button>
-                        )}
-                        {po.status === OrderStatus.APPROVED && (
-                          <span className="text-[11px] text-emerald-700 font-semibold inline-flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            Setoran Disetujui
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5">
+                          {po.status !== OrderStatus.APPROVED && onUpdateOrderStatus && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onUpdateOrderStatus(po.id, OrderStatus.APPROVED)
+                              }
+                              title="Konfirmasi bahwa sales sudah menyetorkan uang hasil penjualan pesanan ini ke Admin"
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Setujui</span>
+                            </button>
+                          )}
+                          {po.status === OrderStatus.APPROVED && (
+                            <span className="text-[11px] text-emerald-700 font-semibold inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Approved
+                            </span>
+                          )}
+
+                          {onDeleteOrder && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Apakah Anda yakin ingin menghapus pesanan ${po.poNumber} (${visit.storeName})?`
+                                  )
+                                ) {
+                                  onDeleteOrder(po.id || visit.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
+                              title="Hapus Pesanan (Admin)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
-                })}
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Excel Export Modal (.xls) with Daily, Weekly, Monthly, Annual filters */}
+      <ExcelExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        visits={visits}
+      />
     </div>
   );
 };

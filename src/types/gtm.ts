@@ -110,6 +110,21 @@ export interface PurchaseOrderItem {
   supplier?: string;
 }
 
+export type ReturnUnit = 'Pcs' | 'RCG' | 'CTN';
+export type ReturnReason = 'Bad Stock' | 'Expired' | 'Kemasan Rusak' | 'Lainnya';
+
+export interface ReturnItem {
+  id: string;
+  skuId?: string;
+  productName: string;
+  unit: ReturnUnit;
+  quantity: number;
+  returnPricePerUnitIdr: number;
+  subtotalReturnIdr: number;
+  reason: ReturnReason;
+  notes?: string;
+}
+
 export interface PurchaseOrder {
   id: string;
   poNumber: string;
@@ -130,6 +145,9 @@ export interface PurchaseOrder {
   totalCompanyAmountIdr?: number;
   totalStoreAmountIdr?: number;
   totalMarginAmountIdr?: number;
+  returns?: ReturnItem[];
+  totalReturnAmountIdr?: number;
+  netAfterReturnAmountIdr?: number;
   paymentTerm: PaymentTerm;
   status: OrderStatus;
   deliveryNotes?: string;
@@ -171,6 +189,8 @@ export interface StoreVisit {
   posmInstalled: boolean;
   outcome: VisitOutcome;
   purchaseOrder?: PurchaseOrder;
+  returns?: ReturnItem[];
+  totalReturnAmountIdr?: number;
   noPurchaseDetail?: NoPurchaseDetail;
   generalNotes?: string;
 }

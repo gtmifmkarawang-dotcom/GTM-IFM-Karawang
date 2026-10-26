@@ -33,6 +33,7 @@ interface OrdersAndBarriersViewProps {
   onDeleteOrder?: (orderOrVisitId: string) => void;
   onStartFollowUpVisit: (storeId: string) => void;
   onOpenNewVisit: () => void;
+  onViewInvoice?: (visit: StoreVisit) => void;
 }
 
 export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
@@ -43,6 +44,7 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
   onDeleteOrder,
   onStartFollowUpVisit,
   onOpenNewVisit,
+  onViewInvoice,
 }) => {
   const [selectedOrderVisit, setSelectedOrderVisit] = useState<StoreVisit | null>(
     null
@@ -309,6 +311,21 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                       >
                         <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                         <span>Hapus</span>
+                      </button>
+                    )}
+
+                    {visit.purchaseOrder && onViewInvoice && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewInvoice(visit);
+                        }}
+                        className="min-h-[40px] px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                        title="Buka Kwitansi dan Kirim ke WhatsApp"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Kwitansi & WA</span>
                       </button>
                     )}
 
@@ -622,6 +639,26 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                       >
                         <Trash2 className="w-4 h-4 text-rose-600" />
                         <span>Hapus Pesanan Ini (Kewenangan Admin)</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {onViewInvoice && selectedOrderVisit.purchaseOrder && (
+                    <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">
+                        Cetak kwitansi resmi atau kirim langsung ke WhatsApp toko:
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const v = selectedOrderVisit;
+                          setSelectedOrderVisit(null);
+                          onViewInvoice(v);
+                        }}
+                        className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-2xs"
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span>Buka Kwitansi & Kirim WhatsApp</span>
                       </button>
                     </div>
                   )}

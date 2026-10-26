@@ -171,7 +171,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       }
     });
 
-    const totalSelisihHarga = Math.max(0, totalStoreSales - totalCompanySales);
+    const totalReturnAmount = filteredVisits.reduce((sum, v) => {
+      return (
+        sum +
+        (v.totalReturnAmountIdr ||
+          v.purchaseOrder?.totalReturnAmountIdr ||
+          (v.returns ? v.returns.reduce((rSum, r) => rSum + (r.subtotalReturnIdr || 0), 0) : 0))
+      );
+    }, 0);
+
+    const netStoreSales = Math.max(0, totalStoreSales - totalReturnAmount);
+    // Selisih harga bersih (bisa negatif jika sales tombok)
+    const totalSelisihHarga = totalStoreSales - totalCompanySales;
 
     return {
       totalVisit,
@@ -181,6 +192,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       totalStoreSales,
       totalCompanySales,
       totalSelisihHarga,
+      totalReturnAmount,
+      netStoreSales,
     };
   }, [filteredVisits, stores]);
 
@@ -461,17 +474,51 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         </div>
 
         {/* 6. Total Selisih Harga */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 shadow-xs col-span-2 sm:col-span-1 lg:col-span-1">
+        <div
+          className={`p-4 sm:p-5 rounded-2xl border shadow-xs col-span-2 sm:col-span-1 lg:col-span-1 ${
+            summaryMetrics.totalSelisihHarga < 0
+              ? 'bg-amber-50 border-amber-300'
+              : 'bg-emerald-50 border-emerald-200'
+          }`}
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
-              Selisih Harga
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider ${
+                summaryMetrics.totalSelisihHarga < 0
+                  ? 'text-amber-800'
+                  : 'text-emerald-800'
+              }`}
+            >
+              Selisih {summaryMetrics.totalSelisihHarga < 0 ? '(Tombok)' : '(Margin)'}
             </span>
-            <Tag className="w-4 h-4 text-emerald-700" />
+            <Tag
+              className={`w-4 h-4 ${
+                summaryMetrics.totalSelisihHarga < 0
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+              }`}
+            />
           </div>
-          <p className="text-xl sm:text-2xl font-black font-mono text-emerald-800 truncate">
-            +{formatIdr(summaryMetrics.totalSelisihHarga)}
+          <p
+            className={`text-xl sm:text-2xl font-black font-mono truncate ${
+              summaryMetrics.totalSelisihHarga < 0
+                ? 'text-amber-800'
+                : 'text-emerald-800'
+            }`}
+          >
+            {summaryMetrics.totalSelisihHarga < 0
+              ? `- ${formatIdr(Math.abs(summaryMetrics.totalSelisihHarga))}`
+              : `+ ${formatIdr(summaryMetrics.totalSelisihHarga)}`}
           </p>
-          <p className="text-[10px] text-emerald-700 mt-1">Margin Toko - HPP</p>
+          <p
+            className={`text-[10px] mt-1 ${
+              summaryMetrics.totalSelisihHarga < 0
+                ? 'text-amber-700 font-semibold'
+                : 'text-emerald-700'
+            }`}
+          >
+            {summaryMetrics.totalSelisihHarga < 0 ? 'Tombok Sales' : 'Margin Toko - HPP'}
+          </p>
         </div>
       </div>
 

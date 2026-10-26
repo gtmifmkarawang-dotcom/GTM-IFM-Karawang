@@ -10,31 +10,31 @@ service cloud.firestore {
     }
 
     match /Product/{productId} {
-      allow get, list: if true;
+      allow read, write: if true;
     }
 
     match /Area/{areaId} {
-      allow get, list: if true;
+      allow read, write: if true;
     }
 
     match /Supplier/{supplierId} {
-      allow get, list: if true;
+      allow read, write: if true;
     }
 
     match /Stores/{storeId} {
-      allow get, list: if true;
+      allow read, write: if true;
     }
 
     match /Users/{userId} {
-      allow get, list: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /Visits/{visitId} {
-      allow get, list: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /Orders/{orderId} {
-      allow get, list: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }

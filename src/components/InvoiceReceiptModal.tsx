@@ -1,10 +1,17 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import {
+  Check,
   CheckCircle2,
+  Copy,
   Download,
+  ExternalLink,
   FileText,
+  MessageSquare,
+  Phone,
   Printer,
+  RotateCcw,
+  Send,
   Share2,
   Store as StoreIcon,
   User,
@@ -13,6 +20,137 @@ import {
 import { IndofoodSnackTimeLogo } from './IndofoodSnackTimeLogo';
 import { formatIdr } from '../data/karawangData';
 import { PurchaseOrder, Store, StoreVisit } from '../types/gtm';
+
+/**
+ * Komponen Ikon WhatsApp Resmi
+ */
+export function WhatsAppIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.456 5.711 1.457h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  );
+}
+
+/**
+ * Menormalkan nomor telepon Indonesia ke format internasional WhatsApp (628xxx)
+ */
+export function formatIndonesianWhatsAppNumber(phone: string): string {
+  if (!phone) return '';
+  const cleaned = phone.replace(/[^0-9]/g, '');
+  if (!cleaned) return '';
+
+  if (cleaned.startsWith('62')) {
+    return cleaned;
+  }
+  if (cleaned.startsWith('0')) {
+    return '62' + cleaned.slice(1);
+  }
+  if (cleaned.startsWith('8')) {
+    return '62' + cleaned;
+  }
+  return cleaned;
+}
+
+/**
+ * Menghasilkan format pesan kwitansi lengkap untuk dikirimkan via WhatsApp
+ */
+export function generateWhatsAppReceiptMessage(params: {
+  order: PurchaseOrder;
+  store?: Store | null;
+  visit?: StoreVisit | null;
+  salesRepName: string;
+}): string {
+  const { order, store, visit, salesRepName } = params;
+  const storeName = order.storeName || store?.name || 'Toko Pelanggan';
+  const ownerName = store?.ownerName || visit?.storeOwner || '-';
+  const storeAddress = store?.address || visit?.address || 'Area Karawang';
+  const district = store?.district || order.district || 'Karawang';
+  const poNum = order.poNumber || `PO-${order.id}`;
+
+  const orderDateFormatted = new Date(
+    order.createdAt || `${order.date}T10:00:00`
+  ).toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const totalStore =
+    order.totalStoreAmountIdr ??
+    order.items.reduce(
+      (acc, it) => acc + (it.storePriceIdr ?? it.unitPriceIdr) * it.quantity,
+      0
+    );
+
+  const totalReturn =
+    order.totalReturnAmountIdr ??
+    (order.returns?.reduce((acc, r) => acc + (r.subtotalReturnIdr || 0), 0) ?? 0);
+
+  const netToPay =
+    order.netAfterReturnAmountIdr ??
+    (totalReturn > 0 ? Math.max(0, totalStore - totalReturn) : totalStore);
+
+  // Daftar item pesanan
+  const itemLines = order.items.map((it, idx) => {
+    const storePrice = it.storePriceIdr ?? it.unitPriceIdr;
+    const lineTotal = storePrice * it.quantity;
+    return `${idx + 1}. *${it.productName}*\n   • ${it.quantity} ${it.unit} × ${formatIdr(storePrice)} = *${formatIdr(lineTotal)}*`;
+  });
+
+  // Rincian retur jika ada
+  const hasReturns = (order.returns && order.returns.length > 0) || totalReturn > 0;
+  let returnSection = '';
+  if (hasReturns && order.returns && order.returns.length > 0) {
+    const returLines = order.returns.map((r, idx) => {
+      return `${idx + 1}. *${r.productName}* (${r.reason})\n   • ${r.quantity} ${r.unit} × ${formatIdr(r.returnPricePerUnitIdr)} = -*${formatIdr(r.subtotalReturnIdr)}*`;
+    });
+    returnSection = `\n\n🔄 *RETUR / PENGEMBALIAN BARANG:*\n${returLines.join('\n')}\n*Total Potongan Retur: -${formatIdr(totalReturn)}*`;
+  } else if (totalReturn > 0) {
+    returnSection = `\n\n🔄 *RETUR / PENGEMBALIAN BARANG:*\n*Total Potongan Retur: -${formatIdr(totalReturn)}*`;
+  }
+
+  // Ringkasan Pembayaran
+  let summaryPayment = '';
+  if (totalReturn > 0) {
+    summaryPayment = `• Total Pesanan Toko: ${formatIdr(totalStore)}\n• Potongan Retur (-): -${formatIdr(totalReturn)}\n👉 *TOTAL DIBAYAR:* *${formatIdr(netToPay)}*`;
+  } else {
+    summaryPayment = `👉 *TOTAL DIBAYAR:* *${formatIdr(totalStore)}*`;
+  }
+
+  const deliveryNote = order.deliveryNotes ? `\n📝 *Catatan:* ${order.deliveryNotes}` : '';
+
+  return `*INDOFOOD SNACK TIME - BUKTI TRANSAKSI & KWITANSI*
+PT INDOFOOD FORTUNA MAKMUR (IFM) - KARAWANG
+━━━━━━━━━━━━━━━━━━━━━━━━
+📄 *No. Faktur / PO:* \`${poNum}\`
+📅 *Waktu:* ${orderDateFormatted}
+🏪 *Toko / Outlet:* *${storeName}*
+👤 *Pemilik:* ${ownerName}
+📍 *Alamat:* ${storeAddress} (${district})
+🧑‍💼 *Sales Rep:* ${salesRepName}
+💳 *Metode:* ${order.paymentTerm || 'Cash / COD'}
+★ Status: *${order.status || 'Submitted'}* ★
+━━━━━━━━━━━━━━━━━━━━━━━━
+📦 *RINCIAN PESANAN:*
+${itemLines.join('\n')}${returnSection}
+━━━━━━━━━━━━━━━━━━━━━━━━
+💰 *RINGKASAN PEMBAYARAN:*
+${summaryPayment}${deliveryNote}
+━━━━━━━━━━━━━━━━━━━━━━━━
+★ *STATUS: LUNAS & RESMI DITERBITKAN* ★
+Diterbitkan secara digital oleh Tim Sales GTM PT Indofood Fortuna Makmur (IFM) Karawang.
+
+_Terima kasih atas pesanan dan kerja samanya! Simpan bukti transaksi ini untuk arsip toko Anda._`;
+}
 
 /**
  * Menghasilkan gambar stempel resmi PT Indofood Fortuna Makmur (IFM)
@@ -127,6 +265,15 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
 }) => {
   const receiptRef = useRef<HTMLDivElement>(null);
 
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [targetPhone, setTargetPhone] = useState(store?.phone || '');
+  const [copied, setCopied] = useState(false);
+  const [shareSuccess, setShareSuccess] = useState(false);
+
+  useEffect(() => {
+    setTargetPhone(store?.phone || '');
+  }, [store?.phone, order?.id]);
+
   if (!isOpen || !order) return null;
 
   const currentSalesName =
@@ -154,6 +301,64 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
       (acc, it) => acc + (it.storePriceIdr ?? it.unitPriceIdr) * it.quantity,
       0
     );
+
+  const totalReturn =
+    order.totalReturnAmountIdr ??
+    (order.returns?.reduce((acc, r) => acc + (r.subtotalReturnIdr || 0), 0) ?? 0);
+
+  const netToPay =
+    order.netAfterReturnAmountIdr ??
+    (totalReturn > 0 ? Math.max(0, totalStore - totalReturn) : totalStore);
+
+  const receiptMessage = useMemo(() => {
+    return generateWhatsAppReceiptMessage({
+      order,
+      store,
+      visit,
+      salesRepName: currentSalesName,
+    });
+  }, [order, store, visit, currentSalesName]);
+
+  const cleanPhone = useMemo(() => {
+    return formatIndonesianWhatsAppNumber(targetPhone);
+  }, [targetPhone]);
+
+  const whatsappDirectUrl = useMemo(() => {
+    const encodedText = encodeURIComponent(receiptMessage);
+    if (cleanPhone) {
+      return `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`;
+    }
+    return `https://api.whatsapp.com/send?text=${encodedText}`;
+  }, [cleanPhone, receiptMessage]);
+
+  const handleCopyText = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(receiptMessage);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }
+    } catch (err) {
+      console.warn('Clipboard copy failed:', err);
+    }
+  };
+
+  const handleNativeShare = async () => {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: `Kwitansi Indofood - ${order.poNumber}`,
+          text: receiptMessage,
+        });
+        setShareSuccess(true);
+        setTimeout(() => setShareSuccess(false), 2500);
+      } catch (e) {
+        // user aborted share
+      }
+    } else {
+      handleCopyText();
+    }
+  };
 
   const handlePrint = () => {
     window.print();
@@ -289,24 +494,41 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
       yPos += 6;
 
       // Financial Summary Box
+      const boxHeight = totalReturn > 0 ? 27 : 20;
       doc.setFillColor(241, 245, 249);
-      doc.roundedRect(110, yPos, 86, 20, 2, 2, 'F');
+      doc.roundedRect(110, yPos, 86, boxHeight, 2, 2, 'F');
 
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
-      doc.text('Total Jumlah Barang:', 114, yPos + 7);
-      doc.text(`${order.totalItemsCount || order.items.reduce((s, i) => s + i.quantity, 0)} Unit`, 192, yPos + 7, {
+      doc.setTextColor(71, 85, 105);
+      doc.text('Total Jumlah Barang:', 114, yPos + 6);
+      doc.text(`${order.totalItemsCount || order.items.reduce((s, i) => s + i.quantity, 0)} Unit`, 192, yPos + 6, {
         align: 'right',
       });
 
-      doc.setTextColor(0, 75, 153);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.text('TOTAL PEMBAYARAN:', 114, yPos + 15);
-      doc.text(formatIdr(totalStore), 192, yPos + 15, { align: 'right' });
+      if (totalReturn > 0) {
+        doc.text('Total Pesanan Toko:', 114, yPos + 11.5);
+        doc.text(formatIdr(totalStore), 192, yPos + 11.5, { align: 'right' });
+
+        doc.setTextColor(185, 28, 28);
+        doc.text('Potongan Retur (-):', 114, yPos + 16.5);
+        doc.text(`-${formatIdr(totalReturn)}`, 192, yPos + 16.5, { align: 'right' });
+
+        doc.setTextColor(0, 75, 153);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text('TOTAL PEMBAYARAN:', 114, yPos + 23);
+        doc.text(formatIdr(netToPay), 192, yPos + 23, { align: 'right' });
+      } else {
+        doc.setTextColor(0, 75, 153);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.text('TOTAL PEMBAYARAN:', 114, yPos + 15);
+        doc.text(formatIdr(totalStore), 192, yPos + 15, { align: 'right' });
+      }
 
       // Signatures
-      yPos += 26;
+      yPos += totalReturn > 0 ? 33 : 26;
       doc.setTextColor(71, 85, 105);
       doc.setFontSize(8.5);
       doc.setFont('helvetica', 'normal');
@@ -412,6 +634,14 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
             Pesanan tercatat di sistem · Siap cetak atau unduh PDF
           </p>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsWhatsAppModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+            >
+              <WhatsAppIcon className="w-4 h-4 text-white" />
+              <span>Kirim ke WhatsApp</span>
+            </button>
             <button
               type="button"
               onClick={handleDownloadPDF}
@@ -550,6 +780,41 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
             </table>
           </div>
 
+          {/* Retur / Pengembalian Barang Section if any */}
+          {((order.returns && order.returns.length > 0) || totalReturn > 0) && (
+            <div className="overflow-hidden border border-amber-200 rounded-2xl bg-amber-50/50">
+              <div className="px-4 py-2.5 bg-amber-100/70 border-b border-amber-200 flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                  Pengembalian / Retur Barang (Bad Stock / Expired)
+                </span>
+                <span className="text-xs font-mono font-bold text-rose-700">
+                  Potongan: -{formatIdr(totalReturn)}
+                </span>
+              </div>
+              {order.returns && order.returns.length > 0 && (
+                <div className="divide-y divide-amber-200/50 text-xs">
+                  {order.returns.map((ret, rIdx) => (
+                    <div
+                      key={ret.id || rIdx}
+                      className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-amber-100/30"
+                    >
+                      <div>
+                        <p className="font-bold text-slate-900">{ret.productName}</p>
+                        <p className="text-[11px] text-slate-500">
+                          Alasan: <span className="font-semibold text-amber-800">{ret.reason}</span> · {ret.quantity} {ret.unit} × {formatIdr(ret.returnPricePerUnitIdr)}
+                        </p>
+                      </div>
+                      <p className="font-mono font-bold text-rose-700">
+                        -{formatIdr(ret.subtotalReturnIdr)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Pricing Totals Box */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-br from-blue-900 via-blue-950 to-slate-900 text-white shadow-md">
             <div>
@@ -561,11 +826,23 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
               </p>
             </div>
             <div className="text-right sm:border-l sm:border-blue-800/80 sm:pl-6 w-full sm:w-auto">
+              {totalReturn > 0 && (
+                <div className="text-xs text-blue-200 mb-1.5 space-y-0.5">
+                  <div className="flex justify-between sm:justify-end gap-3 text-slate-300">
+                    <span>Total Pesanan:</span>
+                    <span className="font-mono font-semibold">{formatIdr(totalStore)}</span>
+                  </div>
+                  <div className="flex justify-between sm:justify-end gap-3 text-rose-300">
+                    <span>Potongan Retur:</span>
+                    <span className="font-mono font-semibold">-{formatIdr(totalReturn)}</span>
+                  </div>
+                </div>
+              )}
               <p className="text-[11px] uppercase tracking-wider text-amber-300 font-bold">
                 Total Pembayaran
               </p>
               <p className="text-2xl font-black font-mono text-amber-400">
-                {formatIdr(totalStore)}
+                {formatIdr(netToPay)}
               </p>
             </div>
           </div>
@@ -621,8 +898,17 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
           </p>
         </div>
 
-        {/* Modal Bottom Close Button */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0 print:hidden">
+        {/* Modal Bottom Action Bar */}
+        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0 print:hidden">
+          <button
+            type="button"
+            onClick={() => setIsWhatsAppModalOpen(true)}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+          >
+            <WhatsAppIcon className="w-4 h-4 text-white" />
+            <span>Kirim Kwitansi ke WhatsApp</span>
+          </button>
+
           <button
             type="button"
             onClick={onClose}
@@ -632,6 +918,136 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* WhatsApp Direct Send Modal Overlay */}
+      {isWhatsAppModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-emerald-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white text-emerald-700 flex items-center justify-center font-bold shadow-sm">
+                  <WhatsAppIcon className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">
+                    Kirim Kwitansi ke WhatsApp
+                  </h4>
+                  <p className="text-[11px] text-emerald-100">
+                    Kirim bukti transaksi resmi langsung ke nomor toko
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWhatsAppModalOpen(false)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+                aria-label="Tutup Kirim WhatsApp"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Recipient Phone Input */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                    Nomor WhatsApp Tujuan:
+                  </label>
+                  {store?.phone && targetPhone !== store.phone && (
+                    <button
+                      type="button"
+                      onClick={() => setTargetPhone(store.phone || '')}
+                      className="text-[11px] text-emerald-700 font-semibold hover:underline cursor-pointer"
+                    >
+                      Gunakan No. Toko ({store.phone})
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    value={targetPhone}
+                    onChange={(e) => setTargetPhone(e.target.value)}
+                    placeholder="Contoh: 08123456789 atau 628123456789"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-xs font-mono font-medium text-slate-800"
+                  />
+                  {cleanPhone ? (
+                    <span className="absolute right-3 top-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono">
+                      +{cleanPhone}
+                    </span>
+                  ) : (
+                    <span className="absolute right-3 top-2.5 text-[10px] text-slate-400">
+                      Pilih kontak di WA
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {cleanPhone
+                    ? 'Format nomor valid untuk WhatsApp (+62).'
+                    : 'Jika nomor dikosongkan, Anda dapat memilih kontak langsung saat WhatsApp terbuka.'}
+                </p>
+              </div>
+
+              {/* Message Preview */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                    Pratinjau Pesan Kwitansi:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleCopyText}
+                    className="text-[11px] font-bold text-slate-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="text-emerald-600">Tersalin!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Salin Teks</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-mono text-slate-700 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed selection:bg-emerald-200">
+                  {receiptMessage}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <button
+                type="button"
+                onClick={handleNativeShare}
+                className="px-3.5 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <Share2 className="w-3.5 h-3.5 text-slate-600" />
+                <span>{shareSuccess ? 'Berhasil Dibagikan!' : 'Bagikan / Salin'}</span>
+              </button>
+
+              <a
+                href={whatsappDirectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-center cursor-pointer"
+              >
+                <WhatsAppIcon className="w-4 h-4 text-white" />
+                <span>Buka WhatsApp & Kirim</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -17,10 +17,12 @@ import {
   PackageCheck,
   Plus,
   Printer,
+  RotateCcw,
   RotateCw,
   Search,
   ShoppingBag,
   Store as StoreIcon,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -36,6 +38,9 @@ import {
   PaymentTerm,
   ProductSKU,
   PurchaseOrderItem,
+  ReturnItem,
+  ReturnReason,
+  ReturnUnit,
   SalesRepresentative,
   Store,
   StoreCategory,
@@ -202,32 +207,38 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
   const [completedOrderForReceipt, setCompletedOrderForReceipt] =
     useState<StoreVisit | null>(null);
 
-  React.useEffect(() => {
-    if (preselectedStoreId) {
-      setSelectedStoreId(preselectedStoreId);
-      setStoreMode('existing');
-    }
-  }, [preselectedStoreId]);
+  // Retur Barang Toko (Bad Stock / Expired / Kemasan Rusak)
+  const [returns, setReturns] = useState<ReturnItem[]>([]);
 
-  // Set default draft item
-  React.useEffect(() => {
-    if (Object.keys(orderLines).length === 0 && catalogToUse.length > 0) {
-      const first = catalogToUse[0];
-      const unitObj = first.units[0];
-      const compPrice = unitObj.companyPriceIdr ?? unitObj.priceIdr;
-      const storePrice = unitObj.storePriceIdr || unitObj.priceIdr;
-      setOrderLines({
-        [first.id]: {
-          skuId: first.id,
-          unit: (unitObj.unit === 'Karton' ? 'CTN' : unitObj.unit) as OrderUnit,
-          quantity: 2,
-          companyPriceIdr: compPrice,
-          storePriceIdr: storePrice,
-          discountIdr: 0,
-        },
-      });
+  // Reset form secara bersih saat modal dibuka sehingga tidak ada produk default yang terpilih
+  useEffect(() => {
+    if (isOpen) {
+      setStep(1);
+      if (preselectedStoreId) {
+        setSelectedStoreId(preselectedStoreId);
+        setStoreMode('existing');
+      } else {
+        setSelectedStoreId(stores[0]?.id || '');
+        setStoreMode(stores.length === 0 ? 'new' : 'existing');
+      }
+      setStoreSearch('');
+      setNewStoreName('');
+      setNewStoreOwner('');
+      setNewStorePhone('');
+      setNewStoreAddress('');
+      setOutcome(VisitOutcome.ORDER);
+      setOrderLines({}); // Mulai dari 0 produk terpilih
+      setReturns([]); // Kosongkan daftar retur
+      setSkuSearch('');
+      setPaymentTerm(PaymentTerm.CASH);
+      setDeliveryNotes('');
+      setValidationError(null);
+      setNoPurchaseCategory(NoPurchaseCategory.STOCK_FULL);
+      setCustomReasonOther('');
+      setCompetitorBrand('');
+      setNoOrderRemarks('');
     }
-  }, [catalogToUse, orderLines]);
+  }, [isOpen, preselectedStoreId, stores]);
 
   const filteredStores = useMemo(() => {
     const q = storeSearch.trim().toLowerCase();
@@ -267,14 +278,20 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
             (line.unit === 'Karton' && u.unit === 'CTN')
         ) || sku.units[0];
 
-      const compPrice = line.companyPriceIdr || unitObj.companyPriceIdr || unitObj.priceIdr;
-      const storePrice = line.storePriceIdr || unitObj.storePriceIdr || unitObj.priceIdr;
+      const compPrice =
+        line.companyPriceIdr !== undefined
+          ? line.companyPriceIdr
+          : unitObj.companyPriceIdr || unitObj.priceIdr;
+      const storePrice =
+        line.storePriceIdr !== undefined
+          ? line.storePriceIdr
+          : unitObj.storePriceIdr || unitObj.priceIdr;
 
       const companySubtotal = compPrice * line.quantity;
       const grossStore = storePrice * line.quantity;
       const discount = Math.min(grossStore, Math.max(0, line.discountIdr || 0));
       const storeSubtotal = grossStore - discount;
-      const margin = storeSubtotal - companySubtotal;
+      const margin = storeSubtotal - companySubtotal; // Dapat bernilai minus jika harga jual toko lebih rendah
 
       items.push({
         skuId: sku.id,
@@ -306,6 +323,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
       (sum, i) => sum + (i.storeSubtotalIdr || 0),
       0
     );
+    // Selisih harga bersih (bisa negatif jika sales tombok)
     const totalMarginAmountIdr = totalStoreAmountIdr - totalCompanyAmountIdr;
 
     return {
@@ -315,6 +333,54 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
       totalMarginAmountIdr,
     };
   }, [activeOrderItems]);
+
+  // Kalkulasi Retur Barang (Bad Stock / Expired)
+  const totalReturnAmountIdr = useMemo(() => {
+    return returns.reduce((sum, r) => sum + (r.subtotalReturnIdr || 0), 0);
+  }, [returns]);
+
+  // Sales Achievement bersih setelah dikurangi retur
+  const netSalesAfterReturnIdr = Math.max(
+    0,
+    orderSummary.totalStoreAmountIdr - totalReturnAmountIdr
+  );
+
+  const handleAddReturnItem = () => {
+    const defaultSku = catalogToUse[0];
+    const defaultPrice =
+      defaultSku?.units[0]?.companyPriceIdr ||
+      defaultSku?.units[0]?.priceIdr ||
+      10000;
+    const newItem: ReturnItem = {
+      id: `ret-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      skuId: defaultSku?.id,
+      productName: defaultSku?.name || 'Chitato Sapi Panggang 68g',
+      unit: 'Pcs',
+      quantity: 1,
+      returnPricePerUnitIdr: defaultPrice,
+      subtotalReturnIdr: defaultPrice * 1,
+      reason: 'Bad Stock',
+      notes: '',
+    };
+    setReturns((prev) => [...prev, newItem]);
+  };
+
+  const handleUpdateReturnItem = (id: string, updates: Partial<ReturnItem>) => {
+    setReturns((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        const q = updated.quantity || 0;
+        const p = updated.returnPricePerUnitIdr || 0;
+        updated.subtotalReturnIdr = q * p;
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveReturnItem = (id: string) => {
+    setReturns((prev) => prev.filter((item) => item.id !== id));
+  };
 
   if (!isOpen) return null;
 
@@ -459,9 +525,33 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
     });
   };
 
-  const handleStorePriceChange = (skuId: string, newStorePrice: number) => {
+  const handleStorePriceChange = (
+    skuId: string,
+    newStorePrice: number,
+    sku?: ProductSKU,
+    unit?: OrderUnit
+  ) => {
     setOrderLines((prev) => {
       const existing = prev[skuId];
+      if (!existing && sku) {
+        const selUnit =
+          unit ||
+          ((sku.defaultUnit === 'Karton' ? 'CTN' : sku.defaultUnit) as OrderUnit);
+        const unitObj =
+          sku.units.find((u) => u.unit === selUnit) || sku.units[0];
+        const compPrice = unitObj.companyPriceIdr || unitObj.priceIdr;
+        return {
+          ...prev,
+          [skuId]: {
+            skuId,
+            unit: selUnit,
+            quantity: 0,
+            companyPriceIdr: compPrice,
+            storePriceIdr: Math.max(0, newStorePrice),
+            discountIdr: 0,
+          },
+        };
+      }
       if (!existing) return prev;
       return {
         ...prev,
@@ -590,6 +680,8 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
       shelfDisplayChecked: true,
       posmInstalled: true,
       outcome,
+      returns: returns.length > 0 ? returns : undefined,
+      totalReturnAmountIdr: returns.length > 0 ? totalReturnAmountIdr : undefined,
       purchaseOrder:
         outcome === VisitOutcome.ORDER
           ? {
@@ -608,10 +700,13 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
               totalItemsCount: orderSummary.totalItemsCount,
               grossAmountIdr: orderSummary.totalStoreAmountIdr,
               totalDiscountIdr: 0,
-              netAmountIdr: orderSummary.totalStoreAmountIdr,
+              netAmountIdr: netSalesAfterReturnIdr, // Nilai penjualan bersih setelah dipotong retur
               totalCompanyAmountIdr: orderSummary.totalCompanyAmountIdr,
               totalStoreAmountIdr: orderSummary.totalStoreAmountIdr,
               totalMarginAmountIdr: orderSummary.totalMarginAmountIdr,
+              returns: returns.length > 0 ? returns : undefined,
+              totalReturnAmountIdr: returns.length > 0 ? totalReturnAmountIdr : undefined,
+              netAfterReturnAmountIdr: netSalesAfterReturnIdr,
               paymentTerm,
               status: OrderStatus.SUBMITTED,
               deliveryNotes: deliveryNotes.trim() || undefined,
@@ -635,6 +730,16 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
     };
 
     onSaveVisit(newVisit, createdStore);
+
+    // Reset state modal agar siap digunakan kembali dalam kondisi bersih
+    setStep(1);
+    setOrderLines({});
+    setReturns([]);
+    setNewStoreName('');
+    setNewStoreOwner('');
+    setNewStorePhone('');
+    setNewStoreAddress('');
+    setDeliveryNotes('');
 
     if (wantReceiptModal && newVisit.purchaseOrder) {
       setCompletedOrderForReceipt(newVisit);
@@ -1301,14 +1406,19 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                                 </span>
                                 <input
                                   type="number"
-                                  value={storePrice}
-                                  onChange={(e) =>
+                                  min="0"
+                                  value={storePrice === 0 ? '0' : storePrice}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const num = raw === '' ? 0 : parseInt(raw, 10);
                                     handleStorePriceChange(
                                       sku.id,
-                                      parseInt(e.target.value, 10) || 0
-                                    )
-                                  }
-                                  className="w-full text-xs font-mono font-bold text-blue-900 bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:border-blue-600"
+                                      isNaN(num) ? 0 : Math.max(0, num),
+                                      sku,
+                                      selectedUnit
+                                    );
+                                  }}
+                                  className="w-full text-xs font-mono font-bold text-blue-900 bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:border-blue-600 focus:bg-white"
                                 />
                               </div>
                               <div className="text-right">
@@ -1323,6 +1433,189 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                           </div>
                         );
                       })}
+                    </div>
+
+                    {/* SECTION PENCATATAN RETUR BARANG TOKO */}
+                    <div className="border border-rose-200 rounded-2xl bg-rose-50/40 p-4 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                            <RotateCcw className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-rose-950 uppercase tracking-wide">
+                              Pencatatan Retur Barang Toko
+                            </h4>
+                            <p className="text-[11px] text-rose-700">
+                              Barang retur (Bad Stock / Expired / Rusak) mengurangi pencapaian sales
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddReturnItem}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Tambah Retur</span>
+                        </button>
+                      </div>
+
+                      {returns.length === 0 ? (
+                        <div className="text-center py-3.5 border border-dashed border-rose-200 rounded-xl bg-white/70">
+                          <p className="text-xs text-rose-900 font-medium">
+                            Tidak ada barang retur pada kunjungan ini.
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Klik tombol &quot;+ Tambah Retur&quot; jika toko mengembalikan produk bad stock / kadaluarsa.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {returns.map((retItem, index) => (
+                            <div
+                              key={retItem.id}
+                              className="p-3 bg-white border border-rose-200 rounded-xl shadow-2xs space-y-2.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold text-rose-900 bg-rose-100 px-2 py-0.5 rounded-md">
+                                  Item Retur #{index + 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveReturnItem(retItem.id)}
+                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer transition-colors"
+                                  title="Hapus Retur"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                    Pilih Produk yang Diretur
+                                  </label>
+                                  <select
+                                    value={retItem.productName}
+                                    onChange={(e) => {
+                                      const skuMatch = catalogToUse.find((p) => p.name === e.target.value);
+                                      const defaultPrice = skuMatch?.units[0]?.companyPriceIdr || skuMatch?.units[0]?.priceIdr || 10000;
+                                      handleUpdateReturnItem(retItem.id, {
+                                        productName: e.target.value,
+                                        skuId: skuMatch?.id,
+                                        returnPricePerUnitIdr: retItem.returnPricePerUnitIdr || defaultPrice,
+                                      });
+                                    }}
+                                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:border-rose-600 font-medium"
+                                  >
+                                    {catalogToUse.map((sku) => (
+                                      <option key={sku.id} value={sku.name}>
+                                        {sku.name} ({sku.category})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                    Alasan Retur Barang *
+                                  </label>
+                                  <select
+                                    value={retItem.reason}
+                                    onChange={(e) =>
+                                      handleUpdateReturnItem(retItem.id, {
+                                        reason: e.target.value as ReturnReason,
+                                      })
+                                    }
+                                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:border-rose-600 font-medium"
+                                  >
+                                    <option value="Bad Stock">Bad Stock (Bungkus Bocor / Alot / Bau)</option>
+                                    <option value="Expired">Expired / Kadaluarsa</option>
+                                    <option value="Kemasan Rusak">Kemasan Rusak / Sobek Saat Distribusi</option>
+                                    <option value="Lainnya">Lainnya</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">
+                                    Satuan Retur
+                                  </label>
+                                  <select
+                                    value={retItem.unit}
+                                    onChange={(e) =>
+                                      handleUpdateReturnItem(retItem.id, {
+                                        unit: e.target.value as ReturnUnit,
+                                      })
+                                    }
+                                    className="w-full text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:border-rose-600 text-rose-950"
+                                  >
+                                    <option value="Pcs">Pcs</option>
+                                    <option value="RCG">RCG (Renceng)</option>
+                                    <option value="CTN">CTN (Karton)</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">
+                                    Jumlah Barang
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={retItem.quantity}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const val = raw === '' ? 0 : parseInt(raw, 10);
+                                      handleUpdateReturnItem(retItem.id, { quantity: isNaN(val) ? 0 : Math.max(0, val) });
+                                    }}
+                                    className="w-full text-xs font-mono font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:border-rose-600"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">
+                                    Harga Retur / Satuan (Rp)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={retItem.returnPricePerUnitIdr === 0 ? '0' : retItem.returnPricePerUnitIdr}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const val = raw === '' ? 0 : parseInt(raw, 10);
+                                      handleUpdateReturnItem(retItem.id, {
+                                        returnPricePerUnitIdr: isNaN(val) ? 0 : Math.max(0, val),
+                                      });
+                                    }}
+                                    className="w-full text-xs font-mono font-bold text-rose-900 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:border-rose-600"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                                <span className="text-slate-500 text-[11px]">
+                                  Subtotal Nilai Retur:
+                                </span>
+                                <span className="font-mono font-bold text-rose-700">
+                                  - {formatIdr(retItem.subtotalReturnIdr)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+
+                          <div className="flex items-center justify-between p-2.5 bg-rose-100/70 border border-rose-300 rounded-xl text-xs">
+                            <span className="font-bold text-rose-950">
+                              Total Pengurang Retur ({returns.length} item):
+                            </span>
+                            <span className="font-mono font-black text-rose-800 text-sm">
+                              - {formatIdr(totalReturnAmountIdr)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Pembayaran & Catatan Serah Terima Langsung */}
@@ -1370,29 +1663,64 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Ringkasan Finansial Beli */}
-                    <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-900 via-blue-950 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
-                      <div>
-                        <p className="text-xs text-blue-200">
-                          Total Pesanan ({orderSummary.totalItemsCount} unit ·{' '}
-                          {activeOrderItems.length} SKU)
-                        </p>
-                        <div className="flex items-center gap-3 text-xs mt-1">
-                          <span className="text-slate-300">
-                            HPP: {formatIdr(orderSummary.totalCompanyAmountIdr)}
-                          </span>
-                          <span className="text-emerald-300 font-bold">
-                            Selisih: +{formatIdr(orderSummary.totalMarginAmountIdr)}
-                          </span>
+                    {/* Ringkasan Finansial Beli & Pengurang Retur */}
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-900 via-blue-950 to-slate-900 text-white space-y-3 shadow-md">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs text-blue-200">
+                            Total Pesanan ({orderSummary.totalItemsCount} unit ·{' '}
+                            {activeOrderItems.length} SKU)
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs mt-1">
+                            <span className="text-slate-300">
+                              HPP: {formatIdr(orderSummary.totalCompanyAmountIdr)}
+                            </span>
+                            <span
+                              className={`font-bold ${
+                                orderSummary.totalMarginAmountIdr < 0
+                                  ? 'text-amber-400'
+                                  : 'text-emerald-300'
+                              }`}
+                            >
+                              Selisih Harga:{' '}
+                              {orderSummary.totalMarginAmountIdr < 0
+                                ? `- ${formatIdr(
+                                    Math.abs(orderSummary.totalMarginAmountIdr)
+                                  )} (Tombok Sales)`
+                                : `+ ${formatIdr(
+                                    orderSummary.totalMarginAmountIdr
+                                  )} (Margin)`}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[11px] uppercase tracking-wider text-amber-300 font-bold">
+                            Penjualan Kotor (Gross)
+                          </p>
+                          <p className="text-lg font-black font-mono text-amber-400">
+                            {formatIdr(orderSummary.totalStoreAmountIdr)}
+                          </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[11px] uppercase tracking-wider text-amber-300 font-bold">
-                          Total Penjualan ke Toko
-                        </p>
-                        <p className="text-xl font-black font-mono text-amber-400">
-                          {formatIdr(orderSummary.totalStoreAmountIdr)}
-                        </p>
+
+                      {totalReturnAmountIdr > 0 && (
+                        <div className="pt-2 border-t border-blue-800/80 flex items-center justify-between text-xs">
+                          <span className="text-rose-300 font-medium">
+                            Potongan Retur Barang Toko:
+                          </span>
+                          <span className="font-mono font-bold text-rose-400">
+                            - {formatIdr(totalReturnAmountIdr)}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-blue-800 flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                          Sales Achievement (Net Omset):
+                        </span>
+                        <span className="text-xl font-black font-mono text-white">
+                          {formatIdr(netSalesAfterReturnIdr)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1509,7 +1837,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                       className="min-h-[44px] px-6 py-2 rounded-xl text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 transition-colors shadow-xs cursor-pointer"
                     >
                       {outcome === VisitOutcome.ORDER
-                        ? `Simpan Order (${formatIdr(orderSummary.totalStoreAmountIdr)})`
+                        ? `Simpan Order (${formatIdr(netSalesAfterReturnIdr)})`
                         : 'Simpan Kunjungan Tidak Beli'}
                     </button>
                   </div>

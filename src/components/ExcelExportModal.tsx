@@ -14,7 +14,7 @@ import { formatIdr } from '../data/karawangData';
 import { StoreVisit, VisitOutcome } from '../types/gtm';
 
 export type ReportType = 'sales' | 'visits';
-export type PeriodMode = 'daily' | 'weekly' | 'monthly' | 'annual';
+export type PeriodMode = 'all' | 'daily' | 'weekly' | 'monthly' | 'annual';
 
 interface ExcelExportModalProps {
   isOpen: boolean;
@@ -48,7 +48,8 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
   visits,
 }) => {
   const [reportType, setReportType] = useState<ReportType>('sales');
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('daily');
+  // Default to 'all' agar seluruh data tersimpan langsung ketarik tanpa risiko filter tanggal kosong
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
 
   // Filter pickers
   const todayStr = new Date().toISOString().split('T')[0];
@@ -62,6 +63,9 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
   // Filter visits based on selected period
   const filteredVisits = useMemo(() => {
     return visits.filter((v) => {
+      if (periodMode === 'all') {
+        return true;
+      }
       const visitDate = v.date;
       if (!visitDate) return false;
 
@@ -96,17 +100,38 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
       area: string;
       kategoriToko: string;
       supplier: string;
+      returInfo: string;
+      nilaiRetur: number;
+      netPenjualan: number;
     }[] = [];
 
     filteredVisits.forEach((v) => {
       if (v.outcome !== VisitOutcome.ORDER || !v.purchaseOrder) return;
       const po = v.purchaseOrder;
 
-      po.items.forEach((item) => {
+      // Ambil retur dari visit atau purchase order
+      const visitReturns = v.returns || po.returns || [];
+      const totalReturn = v.totalReturnAmountIdr || po.totalReturnAmountIdr || 0;
+      const returDesc =
+        visitReturns.length > 0
+          ? visitReturns
+              .map(
+                (r) =>
+                  `${r.productName}: ${r.quantity} ${r.unit} (${r.reason})`
+              )
+              .join('; ')
+          : '—';
+
+      po.items.forEach((item, itemIdx) => {
         const qty = item.quantity || 1;
-        const hargaPerusahaan = item.companyPriceIdr || item.unitPriceIdr;
-        const hargaJualToko = item.storePriceIdr || item.unitPriceIdr;
+        const hargaPerusahaan = item.companyPriceIdr ?? item.unitPriceIdr;
+        const hargaJualToko = item.storePriceIdr ?? item.unitPriceIdr;
+        // Selisih harga murni (bisa minus jika sales tombok)
         const selisihHarga = (hargaJualToko - hargaPerusahaan) * qty;
+
+        // Pasangkan info retur pada baris pertama order agar tidak ganda saat di-sum
+        const itemNilaiRetur = itemIdx === 0 ? totalReturn : 0;
+        const itemNetPenjualan = Math.max(0, hargaJualToko * qty - itemNilaiRetur);
 
         rows.push({
           jenisProduct: `${item.productName} (${item.unit})`,
@@ -120,6 +145,9 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
           area: v.district,
           kategoriToko: v.storeCategory,
           supplier: item.supplier || 'PT Indofood Fortuna Makmur (IFM)',
+          returInfo: itemIdx === 0 ? returDesc : '—',
+          nilaiRetur: itemNilaiRetur,
+          netPenjualan: itemNetPenjualan,
         });
       });
     });
@@ -133,13 +161,16 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
     const totalCompany = salesExportRows.reduce((sum, r) => sum + r.hargaPerusahaan * r.qty, 0);
     const totalStore = salesExportRows.reduce((sum, r) => sum + r.hargaJualToko * r.qty, 0);
     const totalMargin = salesExportRows.reduce((sum, r) => sum + r.selisihHarga, 0);
-    return { totalQty, totalCompany, totalStore, totalMargin };
+    const totalReturn = salesExportRows.reduce((sum, r) => sum + r.nilaiRetur, 0);
+    const totalNet = Math.max(0, totalStore - totalReturn);
+    return { totalQty, totalCompany, totalStore, totalMargin, totalReturn, totalNet };
   }, [salesExportRows]);
 
   if (!isOpen) return null;
 
   // Format trigger label
   const periodLabel = (() => {
+    if (periodMode === 'all') return 'Semua Data (Rekap Keseluruhan)';
     if (periodMode === 'daily') return `Harian (${selectedDate})`;
     if (periodMode === 'weekly') return `Mingguan (${weekInfo.label})`;
     if (periodMode === 'monthly') {
@@ -162,25 +193,47 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
     const totalStyle =
       'background-color: #F1F5F9; font-weight: bold; border: 1px solid #94A3B8; padding: 10px 12px; font-size: 11pt;';
 
+    const periodTag =
+      periodMode === 'all'
+        ? 'Semua-Data'
+        : periodMode === 'daily'
+        ? selectedDate
+        : periodMode === 'weekly'
+        ? selectedWeekDate
+        : periodMode === 'monthly'
+        ? selectedMonth
+        : selectedYear;
+
     if (reportType === 'sales') {
-      filename = `Laporan-Sales-${periodMode}-${periodMode === 'daily' ? selectedDate : periodMode === 'weekly' ? selectedWeekDate : periodMode === 'monthly' ? selectedMonth : selectedYear}.xls`;
+      filename = `Laporan-Sales-${periodMode}-${periodTag}.xls`;
 
       const rowsHtml = salesExportRows
         .map(
-          (r, idx) => `
+          (r, idx) => {
+            const selisihDisplay =
+              r.selisihHarga < 0
+                ? `-Rp ${Math.abs(r.selisihHarga).toLocaleString('id-ID')} (Tombok Sales)`
+                : `+Rp ${r.selisihHarga.toLocaleString('id-ID')} (Margin)`;
+            const selisihColor = r.selisihHarga < 0 ? '#DC2626' : '#047857';
+
+            return `
         <tr style="${idx % 2 === 1 ? 'background-color: #F8FAFC;' : ''}">
           <td style="${borderStyle}">${r.jenisProduct}</td>
           <td style="${borderStyle} text-align: right;">${r.qty}</td>
           <td style="${borderStyle} text-align: right; mso-number-format:'Rp\\ #\\,##0';">${r.hargaPerusahaan}</td>
           <td style="${borderStyle} text-align: right; mso-number-format:'Rp\\ #\\,##0';">${r.hargaJualToko}</td>
-          <td style="${borderStyle} text-align: right; font-weight: bold; color: #047857; mso-number-format:'Rp\\ #\\,##0';">${r.selisihHarga}</td>
+          <td style="${borderStyle} text-align: right; font-weight: bold; color: ${selisihColor};">${selisihDisplay}</td>
           <td style="${borderStyle}">${r.namaSales}</td>
           <td style="${borderStyle} text-align: center;">${r.tanggalPenjualan}</td>
           <td style="${borderStyle} font-weight: bold;">${r.namaToko}</td>
           <td style="${borderStyle}">${r.area}</td>
           <td style="${borderStyle}">${r.kategoriToko}</td>
           <td style="${borderStyle}">${r.supplier}</td>
-        </tr>`
+          <td style="${borderStyle} font-size: 10pt; color: #991B1B;">${r.returInfo}</td>
+          <td style="${borderStyle} text-align: right; color: #DC2626; mso-number-format:'Rp\\ #\\,##0';">${r.nilaiRetur ? '-' + r.nilaiRetur : 0}</td>
+          <td style="${borderStyle} text-align: right; font-weight: bold; color: #003366; mso-number-format:'Rp\\ #\\,##0';">${r.netPenjualan}</td>
+        </tr>`;
+          }
         )
         .join('');
 
@@ -224,10 +277,13 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
               <th style="${headerStyle}">Area (Kolom I)</th>
               <th style="${headerStyle}">Kategori Toko (Kolom J)</th>
               <th style="${headerStyle}">Supplier (Kolom K)</th>
+              <th style="${headerStyle}">Retur Toko (Kolom L)</th>
+              <th style="${headerRightStyle}">Nilai Retur Toko (Kolom M)</th>
+              <th style="${headerRightStyle}">Net Sales Akhir (Kolom N)</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml || '<tr><td colspan="11" style="text-align: center; padding: 20px;">Tidak ada data transaksi pada periode ini</td></tr>'}
+            ${rowsHtml || '<tr><td colspan="14" style="text-align: center; padding: 20px;">Tidak ada data transaksi pada periode ini</td></tr>'}
           </tbody>
           <tfoot>
             <tr>
@@ -235,8 +291,11 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
               <td style="${totalStyle} text-align: right;">${salesSummary.totalQty}</td>
               <td style="${totalStyle} text-align: right; mso-number-format:'Rp\\ #\\,##0';">${salesSummary.totalCompany}</td>
               <td style="${totalStyle} text-align: right; mso-number-format:'Rp\\ #\\,##0';">${salesSummary.totalStore}</td>
-              <td style="${totalStyle} text-align: right; color: #047857; mso-number-format:'Rp\\ #\\,##0';">${salesSummary.totalMargin}</td>
+              <td style="${totalStyle} text-align: right; font-weight: bold; color: ${salesSummary.totalMargin < 0 ? '#DC2626' : '#047857'}; mso-number-format:'Rp\\ #\\,##0';">${salesSummary.totalMargin < 0 ? '-Rp ' + Math.abs(salesSummary.totalMargin).toLocaleString('id-ID') + ' (Tombok Sales)' : '+Rp ' + salesSummary.totalMargin.toLocaleString('id-ID') + ' (Margin)'}</td>
               <td style="${totalStyle}" colspan="6"></td>
+              <td style="${totalStyle}">Total Retur:</td>
+              <td style="${totalStyle} text-align: right; color: #DC2626; mso-number-format:'Rp\\ #\\,##0';">-${salesSummary.totalReturn}</td>
+              <td style="${totalStyle} text-align: right; font-size: 12pt; color: #003366; mso-number-format:'Rp\\ #\\,##0';">${salesSummary.totalNet}</td>
             </tr>
           </tfoot>
         </table>
@@ -435,7 +494,18 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
               2. Pilih Periode Laporan
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <button
+                type="button"
+                onClick={() => setPeriodMode('all')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold text-center transition-all cursor-pointer ${
+                  periodMode === 'all'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Semua Data
+              </button>
               <button
                 type="button"
                 onClick={() => setPeriodMode('daily')}
@@ -484,6 +554,15 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
 
             {/* Input Picker sesuai periode */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+              {periodMode === 'all' && (
+                <div className="text-xs text-blue-900 font-medium">
+                  <p className="font-bold text-sm text-blue-950">Rekap Keseluruhan Data</p>
+                  <p className="text-slate-600 mt-0.5">
+                    Mengekspor seluruh rekaman transaksi yang tersimpan di sistem ({filteredVisits.length} kunjungan toko, {salesExportRows.length} item transaksi).
+                  </p>
+                </div>
+              )}
+
               {periodMode === 'daily' && (
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">

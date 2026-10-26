@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { User as FirebaseUser, onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -260,6 +260,39 @@ function getStoredSession(): SessionData | null {
   return null;
 }
 
+const VISITS_STORAGE_KEY = 'sales_gtm_visits_cache_v2';
+const STORES_STORAGE_KEY = 'sales_gtm_stores_cache_v2';
+
+function getStoredVisits(): StoreVisit[] {
+  try {
+    const raw = localStorage.getItem(VISITS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to parse cached visits:', err);
+  }
+  return INITIAL_VISITS;
+}
+
+function getStoredStores(): Store[] {
+  try {
+    const raw = localStorage.getItem(STORES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to parse cached stores:', err);
+  }
+  return INITIAL_STORES;
+}
+
 export default function App() {
   const [session, setSession] = useState<SessionData | null>(() => getStoredSession());
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getStoredSession()));
@@ -374,11 +407,28 @@ export default function App() {
       dailyOrderTargetIdr: 2400000,
     };
   }, [session, currentUser, salesRep, userRole]);
-  const [stores, setStores] = useState<Store[]>(INITIAL_STORES);
-  const [visits, setVisits] = useState<StoreVisit[]>(INITIAL_VISITS);
+  const [stores, setStores] = useState<Store[]>(() => getStoredStores());
+  const [visits, setVisits] = useState<StoreVisit[]>(() => getStoredVisits());
   const [routeStops, setRouteStops] = useState<PlannedRouteStop[]>(
     INITIAL_PLANNED_ROUTE
   );
+
+  // Auto-persist visits & stores ke localStorage sehingga tidak hilang saat direfresh
+  useEffect(() => {
+    try {
+      localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(visits));
+    } catch (e) {
+      console.warn('Failed to save visits to localStorage:', e);
+    }
+  }, [visits]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(stores));
+    } catch (e) {
+      console.warn('Failed to save stores to localStorage:', e);
+    }
+  }, [stores]);
 
   // Modals & Drawers
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -462,6 +512,44 @@ export default function App() {
       mounted = false;
     };
   }, [authReady, currentUser]);
+
+  // Sinkronisasi data kunjungan (Visits) & Toko (Stores) dari Firestore
+  useEffect(() => {
+    if (!authReady) return;
+    let mounted = true;
+
+    // Load Stores from Firestore
+    getDocs(collection(db, 'Stores'))
+      .then((snap) => {
+        if (!mounted || snap.empty) return;
+        const loadedStores: Store[] = snap.docs.map((d) => d.data() as Store);
+        setStores((prev) => {
+          const map = new Map<string, Store>();
+          prev.forEach((s) => map.set(s.id, s));
+          loadedStores.forEach((s) => map.set(s.id, s));
+          return Array.from(map.values());
+        });
+      })
+      .catch((err) => console.warn('Stores sync notice:', err));
+
+    // Load Visits from Firestore
+    getDocs(collection(db, 'Visits'))
+      .then((snap) => {
+        if (!mounted || snap.empty) return;
+        const loadedVisits: StoreVisit[] = snap.docs.map((d) => d.data() as StoreVisit);
+        setVisits((prev) => {
+          const map = new Map<string, StoreVisit>();
+          prev.forEach((v) => map.set(v.id, v));
+          loadedVisits.forEach((v) => map.set(v.id, v));
+          return Array.from(map.values());
+        });
+      })
+      .catch((err) => console.warn('Visits sync notice:', err));
+
+    return () => {
+      mounted = false;
+    };
+  }, [authReady]);
 
   // Keamanan peran (Role Guard): Sembunyikan dan cegah dashboard admin jika role sales, dan sebaliknya
   useEffect(() => {
@@ -621,6 +709,9 @@ export default function App() {
 
     if (newStore) {
       setStores((prev) => [newStore, ...prev]);
+      setDoc(doc(db, 'Stores', newStore.id), newStore, { merge: true }).catch((err) =>
+        console.warn('Firestore store save notice:', err)
+      );
     } else {
       setStores((prev) =>
         prev.map((s) =>
@@ -643,10 +734,18 @@ export default function App() {
           : stop
       )
     );
+
+    // Simpan ke Firestore
+    setDoc(doc(db, 'Visits', visitWithRep.id), visitWithRep, { merge: true }).catch((err) =>
+      console.warn('Firestore visit save notice:', err)
+    );
   };
 
   const handleAddStore = (newStore: Store) => {
     setStores((prev) => [newStore, ...prev]);
+    setDoc(doc(db, 'Stores', newStore.id), newStore, { merge: true }).catch((err) =>
+      console.warn('Firestore store save notice:', err)
+    );
   };
 
   // Kewenangan Admin: Menghapus pesanan tertentu
@@ -658,6 +757,10 @@ export default function App() {
           v.purchaseOrder?.id !== orderOrVisitId &&
           v.purchaseOrder?.poNumber !== orderOrVisitId
       )
+    );
+    // Hapus dari Firestore
+    deleteDoc(doc(db, 'Visits', orderOrVisitId)).catch((err) =>
+      console.warn('Firestore delete notice:', err)
     );
   };
 
@@ -690,6 +793,11 @@ export default function App() {
 
   const handleClearAllSalesRecords = () => {
     setVisits([]);
+    try {
+      localStorage.removeItem(VISITS_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
     setRouteStops((prev) =>
       prev.map((stop) => ({ ...stop, completedVisitId: undefined }))
     );
@@ -1275,6 +1383,7 @@ export default function App() {
             onDeleteOrder={handleDeleteOrder}
             onStartFollowUpVisit={(storeId) => handleOpenVisitRecorder(storeId)}
             onOpenNewVisit={() => handleOpenVisitRecorder()}
+            onViewInvoice={(visit) => setSelectedInvoiceVisit(visit)}
           />
         )}
 

@@ -123,11 +123,25 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
     return acc + v.purchaseOrder.netAmountIdr;
   }, 0);
 
-  const totalPriceDifference = Math.max(0, totalStoreSales - totalCompanySales);
+  // 7. Retur Barang Toko (Bad Stock / Expired) yang mengurangi Sales Achievement
+  const totalReturnAmount = todayVisits.reduce((acc, v) => {
+    if (v.totalReturnAmountIdr) return acc + v.totalReturnAmountIdr;
+    if (v.purchaseOrder?.totalReturnAmountIdr) return acc + v.purchaseOrder.totalReturnAmountIdr;
+    if (v.returns) {
+      return acc + v.returns.reduce((sum, r) => sum + (r.subtotalReturnIdr || 0), 0);
+    }
+    return acc;
+  }, 0);
+
+  // Sales Achievement bersih setelah dikurangi retur
+  const netSalesAchievement = Math.max(0, totalStoreSales - totalReturnAmount);
+
+  // Selisih harga bersih (bisa negatif jika harga jual lebih rendah dari harga perusahaan / sales tombok)
+  const rawPriceDifference = totalStoreSales - totalCompanySales;
 
   const targetAchievementPercent = Math.min(
     100,
-    Math.round((totalStoreSales / salesRep.dailyOrderTargetIdr) * 100)
+    Math.round((netSalesAchievement / salesRep.dailyOrderTargetIdr) * 100)
   );
 
   return (
@@ -291,11 +305,11 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Harga Jual ke Toko (Invoice Omzet) */}
           <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-700 to-blue-900 text-white space-y-1">
             <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider block">
-              Total Sales (Harga Jual Toko)
+              Total Sales Toko (Kotor)
             </span>
             <p className="text-2xl font-black font-mono text-white">
               {formatIdr(totalStoreSales)}
@@ -305,29 +319,66 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
             </p>
           </div>
 
+          {/* Pengurang Retur Toko */}
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-1">
+            <span className="text-[11px] font-bold text-rose-800 uppercase tracking-wider block">
+              Potongan Retur Barang
+            </span>
+            <p className="text-2xl font-black font-mono text-rose-700">
+              - {formatIdr(totalReturnAmount)}
+            </p>
+            <p className="text-[11px] text-rose-600 pt-1">
+              Pengembalian bad stock & expired dari toko
+            </p>
+          </div>
+
           {/* Harga Perusahaan (HPP Distributor) */}
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Total Sales (Harga Perusahaan)
+              Total Harga Pabrik (HPP)
             </span>
             <p className="text-2xl font-black font-mono text-slate-800">
               {formatIdr(totalCompanySales)}
             </p>
             <p className="text-[11px] text-slate-500 pt-1">
-              Harga pokok dari pabrik PT Indofood Fortuna Makmur (IFM) Karawang
+              Harga pokok resmi PT Indofood Fortuna Makmur (IFM)
             </p>
           </div>
 
-          {/* Selisih Harga (Margin) */}
-          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-1">
-            <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
-              Total Selisih Harga (Margin Toko)
+          {/* Selisih Harga (Margin Toko / Tombok Sales) */}
+          <div
+            className={`p-4 rounded-2xl border space-y-1 ${
+              rawPriceDifference < 0
+                ? 'bg-amber-50 border-amber-300 text-amber-950'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+            }`}
+          >
+            <span
+              className={`text-[11px] font-bold uppercase tracking-wider block ${
+                rawPriceDifference < 0 ? 'text-amber-800' : 'text-emerald-800'
+              }`}
+            >
+              Selisih Harga {rawPriceDifference < 0 ? '(Tombok Sales)' : '(Margin)'}
             </span>
-            <p className="text-2xl font-black font-mono text-emerald-700">
-              + {formatIdr(totalPriceDifference)}
+            <p
+              className={`text-2xl font-black font-mono ${
+                rawPriceDifference < 0 ? 'text-amber-700' : 'text-emerald-700'
+              }`}
+            >
+              {rawPriceDifference < 0
+                ? `- ${formatIdr(Math.abs(rawPriceDifference))}`
+                : `+ ${formatIdr(rawPriceDifference)}`}
             </p>
-            <p className="text-[11px] text-emerald-700/80 pt-1">
-              Estimasi selisih margin perputaran barang
+            <p
+              className={`text-[11px] pt-1 ${
+                rawPriceDifference < 0
+                  ? 'text-amber-700 font-semibold'
+                  : 'text-emerald-700/80'
+              }`}
+            >
+              {rawPriceDifference < 0
+                ? 'Harga jual di bawah HPP pabrik (tombok sales)'
+                : 'Estimasi selisih keuntungan putaran barang'}
             </p>
           </div>
         </div>
@@ -335,9 +386,11 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
         {/* Progress Bar Target */}
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span className="text-slate-600">Pencapaian Target Harian:</span>
+            <span className="text-slate-600">
+              Sales Achievement (Net Omset setelah Retur):
+            </span>
             <span className="font-mono text-blue-900 font-bold">
-              {targetAchievementPercent}% ({formatIdr(totalStoreSales)} / {formatIdr(salesRep.dailyOrderTargetIdr)})
+              {targetAchievementPercent}% ({formatIdr(netSalesAchievement)} / {formatIdr(salesRep.dailyOrderTargetIdr)})
             </span>
           </div>
           <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden">

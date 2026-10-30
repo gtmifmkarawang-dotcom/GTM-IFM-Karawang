@@ -100,6 +100,25 @@
           "description": "Total order amount."
         }
       }
+    },
+    "AdminLog": {
+      "title": "AdminLog",
+      "description": "Audit trail log of changes made by administrators.",
+      "type": "object",
+      "properties": {
+        "adminEmail": {
+          "type": "string",
+          "description": "Email address of the administrator who performed the action."
+        },
+        "actionType": {
+          "type": "string",
+          "description": "Category of admin action."
+        },
+        "details": {
+          "type": "string",
+          "description": "Description of changes made."
+        }
+      }
     }
   },
   "firestore": {
@@ -130,6 +149,10 @@
     "/Orders/{orderId}": {
       "schema": "Order",
       "description": "Existing Orders collection in sales-gtm-karawang."
+    },
+    "/AdminLogs/{logId}": {
+      "schema": "AdminLog",
+      "description": "Audit trail log collection in sales-gtm-karawang."
     }
   }
 }

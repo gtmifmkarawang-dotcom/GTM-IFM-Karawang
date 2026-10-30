@@ -3,6 +3,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
+  Edit3,
   ExternalLink,
   MapPin,
   Navigation,
@@ -10,6 +11,7 @@ import {
   Plus,
   Search,
   Store as StoreIcon,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
@@ -28,6 +30,9 @@ interface StoreDirectoryViewProps {
   onAddStore: (newStore: Store) => void;
   areaList?: string[];
   onOpenNewStoreModal?: () => void;
+  userRole?: 'sales' | 'admin';
+  onEditStore?: (store: Store) => void;
+  onDeleteStore?: (storeId: string) => void;
 }
 
 export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
@@ -37,9 +42,19 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
   onAddStore,
   areaList,
   onOpenNewStoreModal,
+  userRole = 'sales',
+  onEditStore,
+  onDeleteStore,
 }) => {
   const availableAreas = useMemo(() => {
-    return areaList && areaList.length > 0 ? areaList : KARAWANG_DISTRICTS;
+    const raw = areaList && areaList.length > 0 ? areaList : KARAWANG_DISTRICTS;
+    return Array.from(
+      new Set(
+        raw.filter(
+          (a): a is string => typeof a === 'string' && a.trim().length > 0
+        )
+      )
+    );
   }, [areaList]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,6 +76,21 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Edit store form state (Khusus Admin)
+  const [editingStore, setEditingStore] = useState<Store | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editOwnerName, setEditOwnerName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editCategory, setEditCategory] = useState<StoreCategory>(StoreCategory.RETAIL);
+  const [editDistrict, setEditDistrict] = useState<string>(() => availableAreas[0] || 'Desa Batu Jaya');
+  const [editSubdistrict, setEditSubdistrict] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editCreditLimit, setEditCreditLimit] = useState('5000000');
+  const [editNotes, setEditNotes] = useState('');
+  const [editCoordinates, setEditCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [isEditGettingGps, setIsEditGettingGps] = useState(false);
+  const [editFormError, setEditFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (availableAreas.length > 0 && !availableAreas.includes(district)) {
@@ -148,6 +178,91 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
     setCoordinates(null);
   };
 
+  const handleOpenEdit = (store: Store) => {
+    setEditingStore(store);
+    setEditName(store.name);
+    setEditOwnerName(store.ownerName);
+    setEditPhone(store.phone);
+    setEditCategory(store.category);
+    setEditDistrict(store.district);
+    setEditSubdistrict(store.subdistrict || store.district);
+    setEditAddress(store.address);
+    setEditNotes(store.notes || '');
+    setEditCreditLimit(String(store.creditLimitIdr || 5000000));
+    setEditCoordinates(store.coordinates || null);
+    setEditFormError(null);
+  };
+
+  const handleGetEditLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Browser tidak mendukung pendeteksian lokasi GPS.');
+      return;
+    }
+    setIsEditGettingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setEditCoordinates({
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+        });
+        setIsEditGettingGps(false);
+      },
+      (err) => {
+        console.warn('Geolocation error:', err);
+        setIsEditGettingGps(false);
+        setEditCoordinates({ lat: -6.3048, lng: 107.3025 });
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditFormError(null);
+    if (!editingStore) return;
+    if (!editName.trim() || !editOwnerName.trim() || !editAddress.trim()) {
+      setEditFormError('Nama Toko, Nama Pemilik, dan Alamat Lengkap wajib diisi.');
+      return;
+    }
+
+    const updatedStore: Store = {
+      ...editingStore,
+      name: editName.trim(),
+      ownerName: editOwnerName.trim(),
+      phone: editPhone.trim() || '0812-0000-0000',
+      category: editCategory,
+      district: editDistrict,
+      subdistrict: editSubdistrict.trim() || editDistrict,
+      address: editAddress.trim(),
+      notes: editNotes.trim(),
+      creditLimitIdr: Number(editCreditLimit) || 5000000,
+      coordinates: editCoordinates || editingStore.coordinates,
+    };
+
+    if (onEditStore) {
+      onEditStore(updatedStore);
+    }
+    setEditingStore(null);
+    if (activeStore && activeStore.id === updatedStore.id) {
+      setActiveStore(updatedStore);
+    }
+  };
+
+  const handleDeleteStore = (store: Store) => {
+    if (
+      window.confirm(
+        `Apakah Anda yakin ingin menghapus data toko "${store.name}" (${store.storeCode})?\n\nTindakan ini khusus admin dan akan menghapus data toko dari sistem GTM Karawang.`
+      )
+    ) {
+      if (onDeleteStore) {
+        onDeleteStore(store.id);
+      }
+      if (activeStore && activeStore.id === store.id) {
+        setActiveStore(null);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header section with branding & stats */}
@@ -166,20 +281,37 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (onOpenNewStoreModal) {
-              onOpenNewStoreModal();
-            } else {
-              setIsAddModalOpen(true);
-            }
-          }}
-          className="min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-xs"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Daftarkan Toko Baru (NOO)</span>
-        </button>
+        {userRole === 'admin' ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenNewStoreModal) {
+                onOpenNewStoreModal();
+              } else {
+                setIsAddModalOpen(true);
+              }
+            }}
+            className="min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-xs"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>+ Tambah Toko Baru (Admin)</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenNewStoreModal) {
+                onOpenNewStoreModal();
+              } else {
+                setIsAddModalOpen(true);
+              }
+            }}
+            className="min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Daftarkan Toko Baru (NOO)</span>
+          </button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -203,8 +335,8 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
               className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
             >
               <option value="ALL">Semua Area ({availableAreas.length} Area)</option>
-              {availableAreas.map((dist) => (
-                <option key={dist} value={dist}>
+              {availableAreas.map((dist, idx) => (
+                <option key={`filter-area-${dist}-${idx}`} value={dist}>
                   {dist}
                 </option>
               ))}
@@ -219,7 +351,7 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
             >
               <option value="ALL">Semua Kategori Toko</option>
               {Object.values(StoreCategory).map((cat) => (
-                <option key={cat} value={cat}>
+                <option key={`filter-cat-${cat}`} value={cat}>
                   {cat}
                 </option>
               ))}
@@ -265,16 +397,18 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
             )}
           </div>
         ) : (
-          filteredStores.map((store) => {
+          filteredStores.map((store, index) => {
             const storeVisits = visits.filter((v) => v.storeId === store.id);
             const totalOrderValue = storeVisits.reduce(
               (acc, v) => acc + (v.purchaseOrder?.netAmountIdr || 0),
               0
             );
 
+            const uniqueStoreKey = `store-card-${store.id || store.storeCode || 'item'}-${index}`;
+
             return (
               <div
-                key={store.id}
+                key={uniqueStoreKey}
                 className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
               >
                 <button
@@ -304,8 +438,8 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                   </div>
                 </button>
 
-                <div className="flex items-center justify-between sm:justify-end gap-3 pl-13 sm:pl-0 shrink-0">
-                  <div className="text-left sm:text-right">
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 pl-13 sm:pl-0 shrink-0">
+                  <div className="text-left sm:text-right mr-1">
                     <p className="text-xs text-slate-500">
                       {storeVisits.length} kunjungan
                     </p>
@@ -313,6 +447,36 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                       {totalOrderValue > 0 ? formatIdr(totalOrderValue) : 'Rp 0'}
                     </p>
                   </div>
+
+                  {userRole === 'admin' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenEdit(store);
+                        }}
+                        className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-blue-200 text-blue-700 bg-blue-50/70 hover:bg-blue-100 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                        title="Edit data toko (Khusus Admin)"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteStore(store);
+                        }}
+                        className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50/70 hover:bg-rose-100 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                        title="Hapus toko (Khusus Admin)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Hapus</span>
+                      </button>
+                    </>
+                  )}
 
                   <button
                     type="button"
@@ -404,25 +568,56 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
               )}
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveStore(null)}
-                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
-              >
-                Tutup
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const sId = activeStore.id;
-                  setActiveStore(null);
-                  onStartVisitForStore(sId);
-                }}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 cursor-pointer shadow-xs"
-              >
-                Mulai Kunjungan Toko
-              </button>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {userRole === 'admin' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const s = activeStore;
+                        handleOpenEdit(s);
+                      }}
+                      className="min-h-[40px] px-3.5 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold hover:bg-blue-100 cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Toko</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const s = activeStore;
+                        handleDeleteStore(s);
+                      }}
+                      className="min-h-[40px] px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold hover:bg-rose-100 cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Hapus Toko</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveStore(null)}
+                  className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sId = activeStore.id;
+                    setActiveStore(null);
+                    onStartVisitForStore(sId);
+                  }}
+                  className="min-h-[40px] px-5 py-2 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 cursor-pointer shadow-xs"
+                >
+                  Mulai Kunjungan
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -510,7 +705,7 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                     className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
                   >
                     {Object.values(StoreCategory).map((cat) => (
-                      <option key={cat} value={cat}>
+                      <option key={`add-cat-${cat}`} value={cat}>
                         {cat}
                       </option>
                     ))}
@@ -525,8 +720,8 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                     onChange={(e) => setDistrict(e.target.value)}
                     className="w-full min-h-[44px] px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-700"
                   >
-                    {availableAreas.map((dist) => (
-                      <option key={dist} value={dist}>
+                    {availableAreas.map((dist, idx) => (
+                      <option key={`add-dist-${dist}-${idx}`} value={dist}>
                         {dist}
                       </option>
                     ))}
@@ -599,6 +794,188 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                   className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors shadow-xs cursor-pointer"
                 >
                   Simpan Toko Baru
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Store Modal (Khusus Admin) */}
+      {editingStore && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 text-white">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-amber-400" />
+                  Edit Data Toko
+                </h3>
+                <p className="text-xs text-blue-200 font-mono">
+                  {editingStore.storeCode} · {editingStore.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingStore(null)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-4 overflow-y-auto text-xs">
+              {editFormError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-medium">
+                  {editFormError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Nama Toko / Outlet *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900 font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Nama Pemilik / PIC *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editOwnerName}
+                    onChange={(e) => setEditOwnerName(e.target.value)}
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Nomor WhatsApp / HP</label>
+                  <input
+                    type="tel"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="0812xxxx"
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Kategori Toko</label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as StoreCategory)}
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900 font-medium cursor-pointer"
+                  >
+                    {Object.values(StoreCategory).map((cat) => (
+                      <option key={`edit-cat-${cat}`} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Kecamatan / Area Karawang</label>
+                  <select
+                    value={editDistrict}
+                    onChange={(e) => setEditDistrict(e.target.value)}
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900 font-medium cursor-pointer"
+                  >
+                    {availableAreas.map((area, idx) => (
+                      <option key={`edit-area-${area}-${idx}`} value={area}>
+                        {area}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Kelurahan / Desa</label>
+                  <input
+                    type="text"
+                    value={editSubdistrict}
+                    onChange={(e) => setEditSubdistrict(e.target.value)}
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Alamat Lengkap Toko *</label>
+                <textarea
+                  required
+                  rows={2}
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Catatan Tambahan Toko</label>
+                <input
+                  type="text"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Patokan lokasi, jam buka, dll."
+                  className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-700 text-slate-900"
+                />
+              </div>
+
+              <div className="space-y-1.5 pt-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-700 font-bold">Titik Lokasi GPS</label>
+                  <button
+                    type="button"
+                    onClick={handleGetEditLocation}
+                    disabled={isEditGettingGps}
+                    className="text-blue-700 hover:underline font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <Navigation className={`w-3.5 h-3.5 ${isEditGettingGps ? 'animate-spin' : ''}`} />
+                    <span>{isEditGettingGps ? 'Mendeteksi...' : 'Deteksi GPS Baru'}</span>
+                  </button>
+                </div>
+                {editCoordinates ? (
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between text-xs">
+                    <span className="font-mono text-emerald-800 font-semibold">
+                      {editCoordinates.lat}, {editCoordinates.lng}
+                    </span>
+                    <a
+                      href={`https://www.google.com/maps?q=${editCoordinates.lat},${editCoordinates.lng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-700 font-bold hover:underline inline-flex items-center gap-1"
+                    >
+                      <span>Cek di Google Maps</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400">Koordinat toko belum disetel.</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingStore(null)}
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-amber-300" />
+                  <span>Simpan Perubahan Toko</span>
                 </button>
               </div>
             </form>

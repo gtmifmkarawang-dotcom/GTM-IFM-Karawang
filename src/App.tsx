@@ -4,11 +4,13 @@ import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Clock,
   Compass,
   Database,
   FileText,
+  History,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -24,6 +26,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { AdminAuditLogsView } from './components/AdminAuditLogsView';
 import { AdminDashboardView } from './components/AdminDashboardView';
 import { FirebaseConnectionSheet } from './components/FirebaseConnectionSheet';
 import { IndofoodSnackTimeLogo } from './components/IndofoodSnackTimeLogo';
@@ -45,6 +48,12 @@ import {
   getCachedAreas,
 } from './services/areaService';
 import {
+  fetchAdminAuditLogsFromFirestore,
+  getStoredAuditLogs,
+  recordAdminAuditLog,
+  saveAuditLogsToStorage,
+} from './services/auditLogService';
+import {
   INITIAL_PLANNED_ROUTE,
   INITIAL_SALES_REP,
   INITIAL_STORES,
@@ -60,6 +69,8 @@ import {
   db,
 } from './lib/firebase';
 import {
+  AdminActionCategory,
+  AdminAuditLog,
   ExistingFirebaseConfig,
   OrderStatus,
   OrderUnit,
@@ -79,7 +90,8 @@ type ActiveSection =
   | 'profile'
   | 'stores'
   | 'products'
-  | 'no_orders';
+  | 'no_orders'
+  | 'audit_logs';
 
 type VisitListFilter = 'ALL' | 'ORDER' | 'NO_ORDER' | 'ROUTE';
 
@@ -284,7 +296,26 @@ function getStoredStores(): Store[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const idSet = new Set<string>();
+        const valid: Store[] = [];
+        parsed.forEach((s, idx) => {
+          if (s && typeof s === 'object') {
+            const sid =
+              (typeof s.id === 'string' && s.id.trim()) ||
+              `store-legacy-${idx}-${Date.now()}`;
+            if (!idSet.has(sid)) {
+              idSet.add(sid);
+              valid.push({
+                ...s,
+                id: sid,
+                storeCode:
+                  (typeof s.storeCode === 'string' && s.storeCode.trim()) ||
+                  `KRW-${sid.slice(0, 6)}`,
+              });
+            }
+          }
+        });
+        return valid;
       }
     }
   } catch (err) {
@@ -441,6 +472,49 @@ export default function App() {
     () => getSavedFirebaseConfig()
   );
 
+  // Admin Top Toolbar Dropdown State (accessible on mobile, tablet, and desktop)
+  const [isAdminMenuDropdownOpen, setIsAdminMenuDropdownOpen] = useState(false);
+
+  // Admin Audit Log State
+  const [adminAuditLogs, setAdminAuditLogs] = useState<AdminAuditLog[]>(() =>
+    getStoredAuditLogs()
+  );
+
+  useEffect(() => {
+    fetchAdminAuditLogsFromFirestore().then((logs) => {
+      if (logs && logs.length > 0) {
+        setAdminAuditLogs(logs);
+      }
+    });
+  }, []);
+
+  const logAdminAction = (
+    category: AdminActionCategory,
+    targetTitle: string,
+    details: string
+  ) => {
+    const adminEmail =
+      currentUser?.email || session?.email || 'admin.karawang@indofood.co.id';
+    const adminName =
+      currentUser?.displayName || session?.displayName || 'Admin GTM Karawang';
+    const newLog = recordAdminAuditLog(
+      category,
+      targetTitle,
+      details,
+      adminEmail,
+      adminName
+    );
+    setAdminAuditLogs((prev) => [
+      newLog,
+      ...prev.filter((l) => l.id !== newLog.id),
+    ]);
+  };
+
+  const handleClearAuditLogs = () => {
+    setAdminAuditLogs([]);
+    saveAuditLogsToStorage([]);
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -522,11 +596,24 @@ export default function App() {
     getDocs(collection(db, 'Stores'))
       .then((snap) => {
         if (!mounted || snap.empty) return;
-        const loadedStores: Store[] = snap.docs.map((d) => d.data() as Store);
+        const loadedStores: Store[] = snap.docs.map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return {
+            ...data,
+            id: (typeof data.id === 'string' && data.id.trim()) || d.id,
+            storeCode:
+              (typeof data.storeCode === 'string' && data.storeCode.trim()) ||
+              `KRW-${d.id.slice(0, 6)}`,
+          } as Store;
+        });
         setStores((prev) => {
           const map = new Map<string, Store>();
-          prev.forEach((s) => map.set(s.id, s));
-          loadedStores.forEach((s) => map.set(s.id, s));
+          prev.forEach((s) => {
+            if (s && s.id) map.set(s.id, s);
+          });
+          loadedStores.forEach((s) => {
+            if (s && s.id) map.set(s.id, s);
+          });
           return Array.from(map.values());
         });
       })
@@ -536,11 +623,21 @@ export default function App() {
     getDocs(collection(db, 'Visits'))
       .then((snap) => {
         if (!mounted || snap.empty) return;
-        const loadedVisits: StoreVisit[] = snap.docs.map((d) => d.data() as StoreVisit);
+        const loadedVisits: StoreVisit[] = snap.docs.map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return {
+            ...data,
+            id: (typeof data.id === 'string' && data.id.trim()) || d.id,
+          } as StoreVisit;
+        });
         setVisits((prev) => {
           const map = new Map<string, StoreVisit>();
-          prev.forEach((v) => map.set(v.id, v));
-          loadedVisits.forEach((v) => map.set(v.id, v));
+          prev.forEach((v) => {
+            if (v && v.id) map.set(v.id, v);
+          });
+          loadedVisits.forEach((v) => {
+            if (v && v.id) map.set(v.id, v);
+          });
           return Array.from(map.values());
         });
       })
@@ -746,10 +843,55 @@ export default function App() {
     setDoc(doc(db, 'Stores', newStore.id), newStore, { merge: true }).catch((err) =>
       console.warn('Firestore store save notice:', err)
     );
+    if (userRole === 'admin') {
+      logAdminAction(
+        'TAMBAH_TOKO',
+        newStore.name,
+        `Admin menambahkan outlet baru "${newStore.name}" (${newStore.storeCode}) di ${newStore.district}${newStore.subdistrict ? ', ' + newStore.subdistrict : ''}`
+      );
+    }
+  };
+
+  const handleEditStore = (updatedStore: Store) => {
+    setStores((prev) =>
+      prev.map((s) => (s.id === updatedStore.id ? updatedStore : s))
+    );
+    setDoc(doc(db, 'Stores', updatedStore.id), updatedStore, { merge: true }).catch((err) =>
+      console.warn('Firestore store update notice:', err)
+    );
+    if (userRole === 'admin') {
+      logAdminAction(
+        'EDIT_TOKO',
+        updatedStore.name,
+        `Admin memperbarui data toko "${updatedStore.name}" (${updatedStore.storeCode}) di ${updatedStore.district}`
+      );
+    }
+  };
+
+  const handleDeleteStore = (storeId: string) => {
+    const targetStore = stores.find((s) => s.id === storeId);
+    setStores((prev) => prev.filter((s) => s.id !== storeId));
+    deleteDoc(doc(db, 'Stores', storeId)).catch((err) =>
+      console.warn('Firestore store delete notice:', err)
+    );
+    if (userRole === 'admin') {
+      logAdminAction(
+        'HAPUS_TOKO',
+        targetStore ? targetStore.name : storeId,
+        `Admin menghapus toko "${targetStore ? targetStore.name : storeId}" dari direktori`
+      );
+    }
   };
 
   // Kewenangan Admin: Menghapus pesanan tertentu
   const handleDeleteOrder = (orderOrVisitId: string) => {
+    const targetVisit = visits.find(
+      (v) =>
+        v.id === orderOrVisitId ||
+        v.purchaseOrder?.id === orderOrVisitId ||
+        v.purchaseOrder?.poNumber === orderOrVisitId
+    );
+
     setVisits((prev) =>
       prev.filter(
         (v) =>
@@ -762,6 +904,14 @@ export default function App() {
     deleteDoc(doc(db, 'Visits', orderOrVisitId)).catch((err) =>
       console.warn('Firestore delete notice:', err)
     );
+
+    if (userRole === 'admin' && targetVisit?.purchaseOrder) {
+      logAdminAction(
+        'HAPUS_ORDER',
+        targetVisit.purchaseOrder.poNumber,
+        `Admin menghapus order ${targetVisit.purchaseOrder.poNumber} dari ${targetVisit.storeName} senilai ${formatIdr(targetVisit.purchaseOrder.netAmountIdr)}`
+      );
+    }
   };
 
   const handleUpdateOrderStatus = (
@@ -774,6 +924,10 @@ export default function App() {
       console.warn('Akun sales tidak memiliki otoritas mengubah status menjadi Approved. Approval hanya dapat dilakukan oleh Admin setelah setor uang penjualan.');
       return;
     }
+
+    const targetVisit = visits.find(
+      (v) => v.id === orderOrVisitId || v.purchaseOrder?.id === orderOrVisitId
+    );
 
     setVisits((prev) =>
       prev.map((v) =>
@@ -789,6 +943,15 @@ export default function App() {
           : v
       )
     );
+
+    if (userRole === 'admin' && targetVisit?.purchaseOrder) {
+      const isApproved = nextStatus === OrderStatus.APPROVED;
+      logAdminAction(
+        isApproved ? 'APPROVE_ORDER' : 'REVERT_ORDER',
+        targetVisit.purchaseOrder.poNumber,
+        `Admin mengubah status order ${targetVisit.purchaseOrder.poNumber} (${targetVisit.storeName}) menjadi ${nextStatus}`
+      );
+    }
   };
 
   const handleClearAllSalesRecords = () => {
@@ -819,15 +982,186 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 md:pb-10 font-sans">
       {/* Top Bar Header with Indofood Snack Time Branding (Biru, Putih, Kuning) */}
       <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-blue-100 px-4 sm:px-6 flex items-center justify-between shadow-2xs">
-        {/* Zone 1: Logo & Brand Wordmark */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setActiveSection(userRole === 'admin' ? 'admin' : 'sales_dashboard')}
-            className="flex items-center gap-2 hover:opacity-90 transition-opacity text-left cursor-pointer"
-          >
-            <IndofoodSnackTimeLogo size="sm" />
-          </button>
+        {/* Zone 1: Logo & Brand Wordmark with Dropdown for Admin */}
+        <div className="relative flex items-center gap-3">
+          {userRole === 'admin' ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsAdminMenuDropdownOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 p-1 -m-1 rounded-xl hover:bg-slate-100/90 active:bg-slate-200/80 transition-colors cursor-pointer group"
+                aria-label="Menu Dropdown Admin Indofood Snack Time"
+                aria-expanded={isAdminMenuDropdownOpen}
+              >
+                <IndofoodSnackTimeLogo size="sm" />
+                <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-amber-100 text-amber-900 group-hover:bg-amber-200 transition-colors shrink-0">
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                      isAdminMenuDropdownOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+              </button>
+
+              {/* Admin Navigation Dropdown (Mobile, Tablet, and Desktop Accessible) */}
+              {isAdminMenuDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-2xs"
+                    onClick={() => setIsAdminMenuDropdownOpen(false)}
+                  />
+                  <div className="absolute left-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2 z-50 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Menu Admin GTM Karawang
+                      </p>
+                      <p className="text-xs font-semibold text-slate-800 truncate mt-0.5">
+                        {session?.displayName || currentUser?.email || 'Admin Indofood'}
+                      </p>
+                    </div>
+
+                    <div className="py-1 space-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSection('admin');
+                          setIsAdminMenuDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          activeSection === 'admin'
+                            ? 'bg-blue-900 text-amber-300'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>Dashboard Admin</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSection('orders');
+                          setIsAdminMenuDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          activeSection === 'orders'
+                            ? 'bg-blue-700 text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <ShoppingBag className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span>Monitoring Order</span>
+                        </div>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold ${
+                            activeSection === 'orders'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {visits.filter((v) => v.purchaseOrder).length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSection('stores');
+                          setIsAdminMenuDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          activeSection === 'stores'
+                            ? 'bg-blue-700 text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <StoreIcon className="w-4 h-4 text-teal-600 shrink-0" />
+                          <span>Direktori Toko</span>
+                        </div>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold ${
+                            activeSection === 'stores'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {stores.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSection('products');
+                          setIsAdminMenuDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          activeSection === 'products'
+                            ? 'bg-blue-700 text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Package className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Koleksi /Product</span>
+                        </div>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold ${
+                            activeSection === 'products'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {liveProductDocs.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSection('audit_logs');
+                          setIsAdminMenuDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          activeSection === 'audit_logs'
+                            ? 'bg-blue-700 text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <History className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span>Log Histori Admin</span>
+                        </div>
+                        {adminAuditLogs.length > 0 && (
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                              activeSection === 'audit_logs'
+                                ? 'bg-amber-400 text-blue-950'
+                                : 'bg-indigo-100 text-indigo-900'
+                            }`}
+                          >
+                            {adminAuditLogs.length}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setActiveSection('sales_dashboard')}
+              className="flex items-center gap-2 hover:opacity-90 transition-opacity text-left cursor-pointer"
+            >
+              <IndofoodSnackTimeLogo size="sm" />
+            </button>
+          )}
         </div>
 
         {/* Zone 2: Navigation Links (Dipisahkan Ketat Berdasarkan Role Pengguna) */}
@@ -882,6 +1216,24 @@ export default function App() {
                 }`}
               >
                 Koleksi /Product ({liveProductDocs.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection('audit_logs')}
+                className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activeSection === 'audit_logs'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'hover:text-blue-900 hover:bg-blue-50'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Log Histori Admin</span>
+                {adminAuditLogs.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400 text-blue-950 font-bold font-mono">
+                    {adminAuditLogs.length}
+                  </span>
+                )}
               </button>
             </>
           ) : (
@@ -1072,6 +1424,8 @@ export default function App() {
             authReady={authReady}
             onProductsLoaded={setLiveProductDocs}
             onOpenLoginModal={() => setIsLoginModalOpen(true)}
+            userRole={userRole}
+            onLogAction={logAdminAction}
           />
         )}
 
@@ -1369,6 +1723,9 @@ export default function App() {
             areaList={areaList}
             onStartVisitForStore={(storeId) => handleOpenVisitRecorder(storeId)}
             onAddStore={handleAddStore}
+            onEditStore={handleEditStore}
+            onDeleteStore={handleDeleteStore}
+            userRole={userRole}
             onOpenNewStoreModal={() => handleOpenVisitRecorder()}
           />
         )}
@@ -1398,6 +1755,14 @@ export default function App() {
             onOpenNewVisit={() => handleOpenVisitRecorder()}
           />
         )}
+
+        {/* 8. ADMIN AUDIT LOGS VIEW (Log Histori Perubahan oleh Admin) */}
+        {userRole === 'admin' && activeSection === 'audit_logs' && (
+          <AdminAuditLogsView
+            logs={adminAuditLogs}
+            onClearLogs={handleClearAuditLogs}
+          />
+        )}
       </main>
 
       {/* Fixed Bottom Navigation Bar for Mobile Thumb Zone */}
@@ -1405,69 +1770,140 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-16 bg-white/95 backdrop-blur-md border-t border-slate-200 grid grid-cols-5 items-center px-1"
       >
-        <button
-          type="button"
-          onClick={() => setActiveSection('sales_dashboard')}
-          className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
-            activeSection === 'sales_dashboard'
-              ? 'text-blue-700 font-bold'
-              : 'text-slate-500'
-          }`}
-        >
-          <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] font-semibold mt-1">Dashboard</span>
-        </button>
+        {userRole === 'admin' ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setActiveSection('admin')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'admin'
+                  ? 'text-blue-900 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <ShieldCheck className="w-5 h-5 text-amber-500" />
+              <span className="text-[10px] font-semibold mt-0.5">Admin</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSection('visits')}
-          className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
-            activeSection === 'visits'
-              ? 'text-blue-700 font-bold'
-              : 'text-slate-500'
-          }`}
-        >
-          <Compass className="w-5 h-5" />
-          <span className="text-[10px] font-semibold mt-1">Visit</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('orders')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'orders'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <ShoppingBag className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-0.5">Order</span>
+            </button>
 
-        {/* Center Primary Action Trigger in Natural Thumb Zone */}
-        <div className="flex items-center justify-center">
-          <button
-            type="button"
-            onClick={() => handleOpenVisitRecorder()}
-            className="w-12 h-12 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 text-blue-950 shadow-md flex items-center justify-center active:scale-95 transition-transform border border-amber-300 cursor-pointer"
-            aria-label="Record New Visit"
-          >
-            <Plus className="w-6 h-6 stroke-[3]" />
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setActiveSection('stores')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'stores'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <StoreIcon className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-0.5">Toko</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSection('orders')}
-          className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
-            activeSection === 'orders'
-              ? 'text-blue-700 font-bold'
-              : 'text-slate-500'
-          }`}
-        >
-          <ShoppingBag className="w-5 h-5" />
-          <span className="text-[10px] font-semibold mt-1">Order</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('products')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'products'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <Package className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-0.5">Produk</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSection('profile')}
-          className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
-            activeSection === 'profile'
-              ? 'text-blue-700 font-bold'
-              : 'text-slate-500'
-          }`}
-        >
-          <User className="w-5 h-5" />
-          <span className="text-[10px] font-semibold mt-1">Profile</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('audit_logs')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'audit_logs'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <History className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-0.5">Histori</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setActiveSection('sales_dashboard')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'sales_dashboard'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <LayoutDashboard className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-1">Dashboard</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection('visits')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'visits'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <Compass className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-1">Visit</span>
+            </button>
+
+            {/* Center Primary Action Trigger in Natural Thumb Zone */}
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => handleOpenVisitRecorder()}
+                className="w-12 h-12 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 text-blue-950 shadow-md flex items-center justify-center active:scale-95 transition-transform border border-amber-300 cursor-pointer"
+                aria-label="Record New Visit"
+              >
+                <Plus className="w-6 h-6 stroke-[3]" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection('orders')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'orders'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <ShoppingBag className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-1">Order</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection('profile')}
+              className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
+                activeSection === 'profile'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <User className="w-5 h-5" />
+              <span className="text-[10px] font-semibold mt-1">Profile</span>
+            </button>
+          </>
+        )}
       </nav>
 
       {/* Visit Detail Inspection Sheet */}

@@ -29,9 +29,7 @@ export enum NoPurchaseCategory {
 
 export enum PaymentTerm {
   CASH = 'Cash / COD',
-  TEMPO_7 = 'Tempo 7 Days',
-  TEMPO_14 = 'Tempo 14 Days',
-  TRANSFER = 'Bank Transfer',
+  TRANSFER = 'Transfer',
 }
 
 export enum OrderStatus {
@@ -213,4 +211,29 @@ export interface ExistingFirebaseConfig {
   messagingSenderId: string;
   appId: string;
   databaseId: string;
+}
+
+export type AdminActionCategory =
+  | 'TAMBAH_TOKO'
+  | 'EDIT_TOKO'
+  | 'HAPUS_TOKO'
+  | 'TAMBAH_PRODUK'
+  | 'EDIT_PRODUK'
+  | 'HAPUS_PRODUK'
+  | 'APPROVE_ORDER'
+  | 'REVERT_ORDER'
+  | 'HAPUS_ORDER'
+  | 'PENGATURAN_SISTEM';
+
+export interface AdminAuditLog {
+  id: string;
+  timestamp: string;
+  adminEmail: string;
+  adminName: string;
+  actionType: AdminActionCategory;
+  targetType: 'Toko' | 'Produk' | 'Order' | 'Sistem';
+  targetId?: string;
+  targetTitle: string;
+  details: string;
+  metadata?: Record<string, unknown>;
 }

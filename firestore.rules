@@ -36,5 +36,10 @@ service cloud.firestore {
     match /Orders/{orderId} {
       allow read, write: if true;
     }
+
+    match /AdminLogs/{logId} {
+      allow read, write: if true;
+    }
   }
 }
+

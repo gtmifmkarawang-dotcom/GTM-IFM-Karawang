@@ -46,10 +46,16 @@ export interface SalesRepresentative {
   name: string;
   email: string;
   phone: string;
+  address?: string;
+  photoUrl?: string;
   role: 'Sales Representative' | 'Area Supervisor' | 'Admin';
   assignedDistricts: string[];
   dailyVisitTarget: number;
   dailyOrderTargetIdr: number;
+  monthlyVisitTarget?: number;
+  monthlyOrderTargetIdr?: number;
+  isActive?: boolean;
+  joinDate?: string;
 }
 
 export interface Store {
@@ -220,6 +226,9 @@ export type AdminActionCategory =
   | 'TAMBAH_PRODUK'
   | 'EDIT_PRODUK'
   | 'HAPUS_PRODUK'
+  | 'TAMBAH_SALES'
+  | 'EDIT_SALES'
+  | 'HAPUS_SALES'
   | 'APPROVE_ORDER'
   | 'REVERT_ORDER'
   | 'HAPUS_ORDER'
@@ -231,7 +240,7 @@ export interface AdminAuditLog {
   adminEmail: string;
   adminName: string;
   actionType: AdminActionCategory;
-  targetType: 'Toko' | 'Produk' | 'Order' | 'Sistem';
+  targetType: 'Toko' | 'Produk' | 'Order' | 'Sistem' | 'Sales';
   targetId?: string;
   targetTitle: string;
   details: string;

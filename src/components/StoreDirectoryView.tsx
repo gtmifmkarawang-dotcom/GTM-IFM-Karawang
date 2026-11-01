@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Edit3,
   ExternalLink,
+  Lock,
   MapPin,
   Navigation,
   Phone,
@@ -546,15 +547,25 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                     <p className="font-bold text-blue-900">Koordinat GPS</p>
                     <p>{activeStore.coordinates.lat}, {activeStore.coordinates.lng}</p>
                   </div>
-                  <a
-                    href={`https://www.google.com/maps?q=${activeStore.coordinates.lat},${activeStore.coordinates.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-lg bg-blue-700 text-white font-semibold flex items-center gap-1 text-[11px] hover:bg-blue-800"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>Buka Maps</span>
-                  </a>
+                  {userRole === 'admin' ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${activeStore.coordinates.lat},${activeStore.coordinates.lng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-lg bg-blue-700 text-white font-semibold flex items-center gap-1 text-[11px] hover:bg-blue-800"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Buka Maps</span>
+                    </a>
+                  ) : (
+                    <div
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[11px] font-medium"
+                      title="Akses titik Maps diprivasikan khusus Admin untuk mencegah tumpang tindih area antar PIC sales"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Akses Maps Khusus Admin</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -764,15 +775,19 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                     <span className="font-mono text-emerald-800 font-semibold">
                       {coordinates.lat}, {coordinates.lng}
                     </span>
-                    <a
-                      href={`https://www.google.com/maps?q=${coordinates.lat},${coordinates.lng}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-700 font-bold hover:underline inline-flex items-center gap-1"
-                    >
-                      <span>Cek di Google Maps</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+                    {userRole === 'admin' ? (
+                      <a
+                        href={`https://www.google.com/maps?q=${coordinates.lat},${coordinates.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-700 font-bold hover:underline inline-flex items-center gap-1"
+                      >
+                        <span>Cek di Google Maps</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 font-medium">Titik GPS tersimpan</span>
+                    )}
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-400">

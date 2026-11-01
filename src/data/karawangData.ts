@@ -154,6 +154,8 @@ export const INITIAL_SALES_REP: SalesRepresentative = {
   name: 'GTM IFM Karawang',
   email: 'gtmifmkarawang@gmail.com',
   phone: '0812-8841-9201',
+  address: 'Jl. Ahmad Yani No. 45, RT 02/RW 04, Karawang Barat, Kab. Karawang',
+  photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
   role: 'Sales Representative',
   assignedDistricts: [
     'Kelurahan Teluk Jambe Timur',
@@ -164,7 +166,80 @@ export const INITIAL_SALES_REP: SalesRepresentative = {
   ],
   dailyVisitTarget: 25,
   dailyOrderTargetIdr: 2400000,
+  monthlyVisitTarget: 625,
+  monthlyOrderTargetIdr: 60000000,
+  isActive: true,
+  joinDate: '2024-01-15',
 };
+
+export const INITIAL_SALES_REPRESENTATIVES: SalesRepresentative[] = [
+  INITIAL_SALES_REP,
+  {
+    id: 'rep-krw-02',
+    employeeCode: 'GTM-KRW-019',
+    name: 'Rizky Pratama',
+    email: 'rizky.pratama@indofood.co.id',
+    phone: '0813-1122-3344',
+    address: 'Jl. Surotokunto No. 12, Adiarsa Timur, Karawang Timur, Kab. Karawang',
+    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+    role: 'Sales Representative',
+    assignedDistricts: [
+      'Desa Kondang Jaya',
+      'Desa Citarik',
+      'Desa Karang Mulya',
+      'Desa Karang Mulya 2',
+    ],
+    dailyVisitTarget: 25,
+    dailyOrderTargetIdr: 2400000,
+    monthlyVisitTarget: 625,
+    monthlyOrderTargetIdr: 60000000,
+    isActive: true,
+    joinDate: '2024-03-01',
+  },
+  {
+    id: 'rep-krw-03',
+    employeeCode: 'GTM-KRW-020',
+    name: 'Budi Santoso',
+    email: 'budi.santoso@indofood.co.id',
+    phone: '0857-4433-2211',
+    address: 'Jl. Raya Klari Kosambi No. 88, Klari, Kab. Karawang',
+    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
+    role: 'Sales Representative',
+    assignedDistricts: [
+      'Desa Rengas Dengklok 1',
+      'Desa Rengas Dengklok 2',
+      'Desa Batu Jaya',
+    ],
+    dailyVisitTarget: 25,
+    dailyOrderTargetIdr: 2400000,
+    monthlyVisitTarget: 625,
+    monthlyOrderTargetIdr: 60000000,
+    isActive: true,
+    joinDate: '2024-04-10',
+  },
+  {
+    id: 'rep-krw-04',
+    employeeCode: 'GTM-KRW-021',
+    name: 'Hendra Setiawan',
+    email: 'hendra.setiawan@indofood.co.id',
+    phone: '0878-9988-7766',
+    address: 'Jl. Raya Telagasari No. 24, Telagasari, Kab. Karawang',
+    photoUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80',
+    role: 'Sales Representative',
+    assignedDistricts: [
+      'Desa Telaga Sari',
+      'Desa Cilamaya',
+      'Desa Banyu Sari',
+      'Desa Pangkalan',
+    ],
+    dailyVisitTarget: 25,
+    dailyOrderTargetIdr: 2400000,
+    monthlyVisitTarget: 625,
+    monthlyOrderTargetIdr: 60000000,
+    isActive: true,
+    joinDate: '2024-05-20',
+  },
+];
 
 export const PRODUCT_SKU_CATALOG: ProductSKU[] = [
   {
@@ -468,4 +543,91 @@ export function formatIdr(amount: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+/**
+ * Menghitung jumlah hari kerja efektif dalam satu bulan (Senin - Sabtu, hari Minggu libur).
+ * Digunakan untuk pembagian Target Sales Bulanan menjadi Target Sales Harian.
+ */
+export function getEffectiveWorkingDaysInMonth(dateOrYearMonth?: string | Date): {
+  year: number;
+  monthIndex: number; // 0-11
+  monthName: string; // e.g. "November 2026"
+  totalDays: number;
+  effectiveWorkingDays: number; // Senin s/d Sabtu
+  sundaysCount: number;
+} {
+  let targetDate: Date;
+  if (!dateOrYearMonth) {
+    targetDate = new Date();
+  } else if (typeof dateOrYearMonth === 'string') {
+    const parts = dateOrYearMonth.split('-');
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    targetDate = new Date(
+      isNaN(y) ? new Date().getFullYear() : y,
+      isNaN(m) ? new Date().getMonth() : m,
+      1
+    );
+  } else {
+    targetDate = dateOrYearMonth;
+  }
+
+  const year = targetDate.getFullYear();
+  const monthIndex = targetDate.getMonth();
+  const totalDays = new Date(year, monthIndex + 1, 0).getDate();
+
+  let effectiveWorkingDays = 0;
+  let sundaysCount = 0;
+
+  for (let day = 1; day <= totalDays; day++) {
+    const d = new Date(year, monthIndex, day);
+    const dayOfWeek = d.getDay(); // 0 = Minggu, 1 = Senin, ..., 6 = Sabtu
+    if (dayOfWeek === 0) {
+      sundaysCount++;
+    } else {
+      effectiveWorkingDays++;
+    }
+  }
+
+  if (effectiveWorkingDays <= 0) effectiveWorkingDays = 25;
+
+  const monthName = new Intl.DateTimeFormat('id-ID', {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(year, monthIndex, 1));
+
+  return {
+    year,
+    monthIndex,
+    monthName,
+    totalDays,
+    effectiveWorkingDays,
+    sundaysCount,
+  };
+}
+
+/**
+ * Menghitung Target Sales Harian otomatis dari Target Sales Bulanan
+ * Rumus: Target Sales Bulanan / Total Hari Efektif (Senin - Sabtu)
+ */
+export function calculateDailyTargetFromMonthly(
+  monthlyTargetIdr: number,
+  effectiveWorkingDaysOrDate?: number | string | Date
+): number {
+  if (!monthlyTargetIdr || monthlyTargetIdr <= 0) return 0;
+
+  let effectiveDays = 25;
+  if (typeof effectiveWorkingDaysOrDate === 'number') {
+    if (effectiveWorkingDaysOrDate > 0) {
+      effectiveDays = effectiveWorkingDaysOrDate;
+    }
+  } else if (effectiveWorkingDaysOrDate instanceof Date || typeof effectiveWorkingDaysOrDate === 'string') {
+    effectiveDays = getEffectiveWorkingDaysInMonth(effectiveWorkingDaysOrDate).effectiveWorkingDays;
+  } else {
+    effectiveDays = getEffectiveWorkingDaysInMonth().effectiveWorkingDays;
+  }
+
+  if (effectiveDays <= 0) return monthlyTargetIdr;
+  return Math.round(monthlyTargetIdr / effectiveDays);
 }

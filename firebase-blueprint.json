@@ -22,7 +22,15 @@
         },
         "price": {
           "type": "number",
-          "description": "Product price."
+          "description": "Product price (per CTN / base carton)."
+        },
+        "harga_perusahaan_rcg": {
+          "type": "number",
+          "description": "Company price per RCG (renceng)."
+        },
+        "harga_perusahaan_pcs": {
+          "type": "number",
+          "description": "Company price per Pcs (satuan)."
         },
         "unit": {
           "type": "string",
@@ -153,6 +161,10 @@
     "/AdminLogs/{logId}": {
       "schema": "AdminLog",
       "description": "Audit trail log collection in sales-gtm-karawang."
+    },
+    "/SalesPersons/{salesPersonId}": {
+      "schema": "User",
+      "description": "Sales representative master directory in sales-gtm-karawang."
     }
   }
 }

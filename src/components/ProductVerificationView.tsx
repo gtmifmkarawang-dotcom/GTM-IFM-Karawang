@@ -234,6 +234,8 @@ export const ProductVerificationView: React.FC<
     skuCode: '',
     category: 'Snack Ekstrudat',
     harga: 140000,
+    harga_perusahaan_rcg: 17500,
+    harga_perusahaan_pcs: 3500,
     harga_jual: 150000,
     unit: 'CTN',
     supplier: 'PT Indofood Fortuna Makmur (IFM)',
@@ -245,7 +247,9 @@ export const ProductVerificationView: React.FC<
     namaProduct: string;
     skuCode: string;
     category: string;
-    harga: number;
+    harga: number; // HPP per CTN/Karton
+    harga_perusahaan_rcg: number; // HPP per RCG
+    harga_perusahaan_pcs: number; // HPP per Pcs
     harga_jual: number;
     unit: string;
     supplier: string;
@@ -260,6 +264,21 @@ export const ProductVerificationView: React.FC<
     const sku = pickStringField(data, ['skuCode', 'sku', 'code', 'kode', 'barcode']) || '';
     const cat = pickStringField(data, ['category', 'kategori']) || 'Snack Indofood';
     const hpp = pickNumberField(data, ['harga', 'harga_perusahaan', 'price', 'hargaPerusahaan']) || 120000;
+    const hppRcg =
+      pickNumberField(data, [
+        'harga_perusahaan_rcg',
+        'harga_rcg',
+        'hargaRcg',
+        'companyPriceRcg',
+        'harga_renceng',
+      ]) ?? Math.round(hpp / 8);
+    const hppPcs =
+      pickNumberField(data, [
+        'harga_perusahaan_pcs',
+        'harga_pcs',
+        'hargaPcs',
+        'companyPricePcs',
+      ]) ?? Math.round(hpp / 40);
     const hj = pickNumberField(data, ['harga_jual', 'hargaJual']) || Math.round((hpp * 1.065) / 500) * 500;
     const unit = pickStringField(data, ['unit', 'satuan', 'uom']) || 'CTN';
     const supplier = pickStringField(data, ['supplier', 'nama_supplier']) || 'PT Indofood Fortuna Makmur (IFM)';
@@ -271,6 +290,8 @@ export const ProductVerificationView: React.FC<
       skuCode: sku,
       category: cat,
       harga: hpp,
+      harga_perusahaan_rcg: hppRcg,
+      harga_perusahaan_pcs: hppPcs,
       harga_jual: hj,
       unit: unit,
       supplier: supplier,
@@ -291,6 +312,10 @@ export const ProductVerificationView: React.FC<
 
     try {
       const hpp = Number(editingProduct.harga) || 120000;
+      const hppRcg =
+        Number(editingProduct.harga_perusahaan_rcg) || Math.round(hpp / 8);
+      const hppPcs =
+        Number(editingProduct.harga_perusahaan_pcs) || Math.round(hpp / 40);
       const hj = Number(editingProduct.harga_jual) || Math.round((hpp * 1.065) / 500) * 500;
 
       const updateData: Record<string, unknown> = {
@@ -302,6 +327,10 @@ export const ProductVerificationView: React.FC<
         category: editingProduct.category.trim(),
         harga: hpp,
         harga_perusahaan: hpp,
+        harga_perusahaan_rcg: hppRcg,
+        harga_rcg: hppRcg,
+        harga_perusahaan_pcs: hppPcs,
+        harga_pcs: hppPcs,
         harga_jual: hj,
         unit: editingProduct.unit,
         satuan: editingProduct.unit,
@@ -333,7 +362,7 @@ export const ProductVerificationView: React.FC<
         onLogAction(
           'EDIT_PRODUK',
           editingProduct.namaProduct.trim(),
-          `Admin mengubah data produk "${editingProduct.namaProduct.trim()}" (ID: ${editingProduct.id}, HPP: Rp ${hpp.toLocaleString('id-ID')}, Jual: Rp ${hj.toLocaleString('id-ID')}, Status: ${editingProduct.active ? 'Aktif' : 'Non-Aktif'})`
+          `Admin mengubah produk "${editingProduct.namaProduct.trim()}" (HPP CTN: Rp ${hpp.toLocaleString('id-ID')}, HPP RCG: Rp ${hppRcg.toLocaleString('id-ID')}, HPP Pcs: Rp ${hppPcs.toLocaleString('id-ID')}, Jual: Rp ${hj.toLocaleString('id-ID')})`
         );
       }
 
@@ -355,6 +384,10 @@ export const ProductVerificationView: React.FC<
     setAddError(null);
     try {
       const hpp = Number(addForm.harga) || 120000;
+      const hppRcg =
+        Number(addForm.harga_perusahaan_rcg) || Math.round(hpp / 8);
+      const hppPcs =
+        Number(addForm.harga_perusahaan_pcs) || Math.round(hpp / 40);
       const hargaJual =
         Number(addForm.harga_jual) || Math.round((hpp * 1.065) / 500) * 500;
 
@@ -371,6 +404,10 @@ export const ProductVerificationView: React.FC<
         category: addForm.category.trim() || 'Snack Indofood',
         harga: hpp,
         harga_perusahaan: hpp,
+        harga_perusahaan_rcg: hppRcg,
+        harga_rcg: hppRcg,
+        harga_perusahaan_pcs: hppPcs,
+        harga_pcs: hppPcs,
         harga_jual: hargaJual,
         unit: addForm.unit || 'CTN',
         satuan: addForm.unit || 'CTN',
@@ -413,6 +450,8 @@ export const ProductVerificationView: React.FC<
         skuCode: '',
         category: 'Snack Ekstrudat',
         harga: 140000,
+        harga_perusahaan_rcg: 17500,
+        harga_perusahaan_pcs: 3500,
         harga_jual: 150000,
         unit: 'CTN',
         supplier: 'PT Indofood Fortuna Makmur (IFM)',
@@ -1209,18 +1248,37 @@ export const ProductVerificationView: React.FC<
                   </div>
 
                   <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                    {price !== null && (
-                      <div className="text-left sm:text-right">
-                        <p className="text-sm font-mono font-bold text-teal-800 tabular-nums">
-                          {formatIdr(price)}
-                        </p>
-                        {unit && (
-                          <p className="text-[11px] text-slate-500">
-                            per {unit}
+                    <div className="text-left sm:text-right">
+                      {price !== null && (
+                        <>
+                          <p className="text-sm font-mono font-bold text-teal-800 tabular-nums">
+                            {formatIdr(price)}
                           </p>
-                        )}
-                      </div>
-                    )}
+                          <p className="text-[11px] text-slate-500">
+                            per {unit || 'CTN'}
+                          </p>
+                        </>
+                      )}
+                      {Boolean(
+                        docItem.data.harga_perusahaan_rcg ||
+                          docItem.data.harga_rcg ||
+                          docItem.data.harga_perusahaan_pcs ||
+                          docItem.data.harga_pcs
+                      ) && (
+                        <div className="flex sm:justify-end gap-1 mt-1 text-[10px] font-mono">
+                          {Boolean(docItem.data.harga_perusahaan_rcg || docItem.data.harga_rcg) && (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-semibold">
+                              RCG: {formatIdr(Number(docItem.data.harga_perusahaan_rcg || docItem.data.harga_rcg))}
+                            </span>
+                          )}
+                          {Boolean(docItem.data.harga_perusahaan_pcs || docItem.data.harga_pcs) && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-semibold">
+                              Pcs: {formatIdr(Number(docItem.data.harga_perusahaan_pcs || docItem.data.harga_pcs))}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     <div className="flex items-center gap-2">
                       {userRole === 'admin' && (
@@ -1384,61 +1442,154 @@ export const ProductVerificationView: React.FC<
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Harga Perusahaan (HPP) <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                      Rp
-                    </span>
-                    <input
-                      type="number"
-                      required
-                      min={0}
-                      step={500}
-                      value={addForm.harga}
-                      onChange={(e) =>
-                        setAddForm((prev) => ({
-                          ...prev,
-                          harga: Number(e.target.value),
-                          harga_jual: Math.round((Number(e.target.value) * 1.065) / 500) * 500,
-                        }))
-                      }
-                      className="w-full min-h-[44px] pl-9 pr-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-mono font-bold"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-1">Field 'harga' di Firestore</p>
+              {/* Group: HPP Perusahaan per Kemasan */}
+              <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-teal-950 uppercase tracking-wider">
+                    Harga Perusahaan / HPP (Sesuai Kemasan)
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-200 text-teal-900 font-mono">
+                    HPP Indofood
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Harga Jual ke Toko <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                      Rp
-                    </span>
-                    <input
-                      type="number"
-                      required
-                      min={0}
-                      step={500}
-                      value={addForm.harga_jual}
-                      onChange={(e) =>
-                        setAddForm((prev) => ({
-                          ...prev,
-                          harga_jual: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full min-h-[44px] pl-9 pr-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-mono font-bold text-teal-800"
-                    />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      HPP per Karton (CTN) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rp
+                      </span>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        step={500}
+                        value={addForm.harga}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          setAddForm((prev) => ({
+                            ...prev,
+                            harga: val,
+                            harga_perusahaan_rcg: Math.round(val / 8),
+                            harga_perusahaan_pcs: Math.round(val / 40),
+                            harga_jual: Math.round((val * 1.065) / 500) * 500,
+                          }));
+                        }}
+                        className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700 font-mono font-bold"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">1 Dus (40 pcs)</span>
                   </div>
-                  <p className="text-[10px] text-emerald-700 font-semibold mt-1">
-                    Margin: +{formatIdr(Math.max(0, Number(addForm.harga_jual) - Number(addForm.harga)))}
-                  </p>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700">
+                        HPP per RCG <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddForm((prev) => ({
+                            ...prev,
+                            harga_perusahaan_rcg: Math.round(prev.harga / 8),
+                          }));
+                        }}
+                        className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
+                      >
+                        Auto (÷8)
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rp
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={100}
+                        value={addForm.harga_perusahaan_rcg}
+                        onChange={(e) =>
+                          setAddForm((prev) => ({
+                            ...prev,
+                            harga_perusahaan_rcg: Number(e.target.value) || 0,
+                          }))
+                        }
+                        className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700 font-mono font-bold"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">1 Renceng (10 pcs)</span>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700">
+                        HPP per Pcs <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddForm((prev) => ({
+                            ...prev,
+                            harga_perusahaan_pcs: Math.round(prev.harga / 40),
+                          }));
+                        }}
+                        className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
+                      >
+                        Auto (÷40)
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rp
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={50}
+                        value={addForm.harga_perusahaan_pcs}
+                        onChange={(e) =>
+                          setAddForm((prev) => ({
+                            ...prev,
+                            harga_perusahaan_pcs: Number(e.target.value) || 0,
+                          }))
+                        }
+                        className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700 font-mono font-bold"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">1 Satuan eceran</span>
+                  </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Harga Jual ke Toko per CTN <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                    Rp
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    step={500}
+                    value={addForm.harga_jual}
+                    onChange={(e) =>
+                      setAddForm((prev) => ({
+                        ...prev,
+                        harga_jual: Number(e.target.value),
+                      }))
+                    }
+                    className="w-full min-h-[44px] pl-9 pr-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-teal-700 focus:bg-white font-mono font-bold text-teal-800"
+                  />
+                </div>
+                <p className="text-[10px] text-emerald-700 font-semibold mt-1">
+                  Margin CTN: +{formatIdr(Math.max(0, Number(addForm.harga_jual) - Number(addForm.harga)))}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1585,29 +1736,151 @@ export const ProductVerificationView: React.FC<
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Harga Beli / HPP Perusahaan (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="500"
-                    value={editingProduct.harga}
-                    onChange={(e) =>
-                      setEditingProduct((prev) =>
-                        prev ? { ...prev, harga: Number(e.target.value) || 0 } : null
-                      )
-                    }
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm font-mono font-bold text-teal-800 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600 focus:bg-white"
-                  />
+              {/* Group: Harga Pokok / HPP Perusahaan Berdasarkan Kemasan */}
+              <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Tag className="w-4 h-4 text-teal-700" />
+                    <span className="text-xs font-bold text-teal-950 uppercase tracking-wider">
+                      Harga Perusahaan / HPP (Sesuai Kemasan)
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-200/70 text-teal-900 font-mono">
+                    HPP Indofood
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Harga Jual Standar Toko (Rp)
-                  </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* 1. Harga Perusahaan per CTN */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      HPP per CTN (Karton) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rp
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="500"
+                        value={editingProduct.harga}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          setEditingProduct((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  harga: val,
+                                }
+                              : null
+                          );
+                        }}
+                        className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs font-mono font-bold text-teal-900 bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      1 Karton Dus (40 pcs)
+                    </span>
+                  </div>
+
+                  {/* 2. Harga Perusahaan per RCG (Renceng) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700">
+                        HPP per RCG (Renceng) <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const autoVal = Math.round(editingProduct.harga / 8);
+                          setEditingProduct((prev) =>
+                            prev ? { ...prev, harga_perusahaan_rcg: autoVal } : null
+                          );
+                        }}
+                        className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
+                        title="Hitung otomatis dari CTN ÷ 8"
+                      >
+                        Auto (÷8)
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rp
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="100"
+                        value={editingProduct.harga_perusahaan_rcg}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          setEditingProduct((prev) =>
+                            prev ? { ...prev, harga_perusahaan_rcg: val } : null
+                          );
+                        }}
+                        className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs font-mono font-bold text-teal-900 bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      1 Renceng (10 pcs / 1/8 ctn)
+                    </span>
+                  </div>
+
+                  {/* 3. Harga Perusahaan per Pcs */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700">
+                        HPP per Pcs (Satuan) <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const autoVal = Math.round(editingProduct.harga / 40);
+                          setEditingProduct((prev) =>
+                            prev ? { ...prev, harga_perusahaan_pcs: autoVal } : null
+                          );
+                        }}
+                        className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
+                        title="Hitung otomatis dari CTN ÷ 40"
+                      >
+                        Auto (÷40)
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rp
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        value={editingProduct.harga_perusahaan_pcs}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          setEditingProduct((prev) =>
+                            prev ? { ...prev, harga_perusahaan_pcs: val } : null
+                          );
+                        }}
+                        className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs font-mono font-bold text-teal-900 bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      1 Pcs Satuan (1/40 ctn)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Harga Jual Standar Toko */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Harga Jual Standar ke Toko per CTN (Rp)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                    Rp
+                  </span>
                   <input
                     type="number"
                     min="0"
@@ -1618,9 +1891,12 @@ export const ProductVerificationView: React.FC<
                         prev ? { ...prev, harga_jual: Number(e.target.value) || 0 } : null
                       )
                     }
-                    className="w-full min-h-[44px] px-3.5 py-2 text-sm font-mono font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600 focus:bg-white"
+                    className="w-full min-h-[44px] pl-9 pr-3.5 py-2 text-sm font-mono font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-amber-600 focus:bg-white"
                   />
                 </div>
+                <p className="text-[10px] text-emerald-700 font-semibold mt-1">
+                  Estimasi Margin CTN: +{formatIdr(Math.max(0, editingProduct.harga_jual - editingProduct.harga))}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

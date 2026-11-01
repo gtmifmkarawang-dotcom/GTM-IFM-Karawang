@@ -58,6 +58,7 @@ interface AdminDashboardViewProps {
   onSignOut?: () => void;
   onClearAllSalesRecords?: () => void;
   areaList?: string[];
+  onNavigateSection?: (section: string) => void;
 }
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
@@ -74,6 +75,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onSignOut,
   onClearAllSalesRecords,
   areaList,
+  onNavigateSection,
 }) => {
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const availableAreas = useMemo(() => {
@@ -634,7 +636,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
           <div className="pt-4 mt-4 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
             <span>Target Tim Lapangan</span>
-            <span className="font-bold text-emerald-700">Karawang Coverage</span>
+            {onNavigateSection ? (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('sales_team')}
+                className="font-bold text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>Buka Daftar Sales Person</span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+            ) : (
+              <span className="font-bold text-emerald-700">Karawang Coverage</span>
+            )}
           </div>
         </div>
 

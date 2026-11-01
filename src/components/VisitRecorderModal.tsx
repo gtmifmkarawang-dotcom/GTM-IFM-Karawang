@@ -1332,6 +1332,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                                 >
                                   <option value="CTN">CTN (Karton)</option>
                                   <option value="RCG">RCG (Renceng)</option>
+                                  <option value="Pcs">Pcs (Satuan)</option>
                                 </select>
 
                                 <div className="flex items-center border border-slate-300 rounded-xl bg-white overflow-hidden shadow-2xs">

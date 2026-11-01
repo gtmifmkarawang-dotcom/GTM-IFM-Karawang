@@ -1,14 +1,17 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowUpRight,
   Award,
+  Building2,
   Calendar,
   CheckCircle2,
   ChevronRight,
   Clock,
   Compass,
+  DollarSign,
   FileText,
+  Info,
   MapPin,
   Package,
   Plus,
@@ -16,11 +19,18 @@ import {
   ShieldCheck,
   ShoppingBag,
   Store as StoreIcon,
+  Target,
+  TrendingDown,
   TrendingUp,
   User,
   Users,
 } from 'lucide-react';
-import { extractNameFromEmail, formatIdr } from '../data/karawangData';
+import {
+  calculateDailyTargetFromMonthly,
+  extractNameFromEmail,
+  formatIdr,
+  getEffectiveWorkingDaysInMonth,
+} from '../data/karawangData';
 import {
   PlannedRouteStop,
   SalesRepresentative,
@@ -55,6 +65,9 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
   onNavigateSection,
   onViewInvoice,
 }) => {
+  // Toggle antara tab performa 'HARI_INI' atau 'BULAN_INI'
+  const [activePerformanceTab, setActivePerformanceTab] = useState<'HARI_INI' | 'BULAN_INI'>('HARI_INI');
+
   // 1. Tanggal hari ini secara otomatis dalam bahasa Indonesia
   const now = new Date();
   const autoDateIndonesian = now.toLocaleDateString('id-ID', {
@@ -75,78 +88,154 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
       ? 'Selamat Sore'
       : 'Selamat Malam';
 
-  // 2. Sapaan menggunakan nama sales yang otomatis diambil dari email
+  // Sapaan menggunakan nama sales yang otomatis diambil dari email
   const displayName =
     currentUserName ||
     salesRep.name ||
     extractNameFromEmail(currentUserEmail || salesRep.email || '', 'sales');
 
-  // 3. Kutipan resmi
   const quoteText =
     'Bekerja dengan hati melahirkan prestasi, bekerja dengan ikhlas membawa keberkahan';
 
-  // Metrics for Visits & Orders
-  const todayVisits = visits.filter(
-    (v) => v.date === selectedDate || v.salesRepId === salesRep.id
-  );
-  const totalVisitsCount = todayVisits.length;
-  const totalOrdersCount = todayVisits.filter(
-    (v) => v.outcome === VisitOutcome.ORDER
-  ).length;
-  const totalNoOrdersCount = todayVisits.filter(
-    (v) => v.outcome === VisitOutcome.NO_ORDER
-  ).length;
-
-  // 6. Total Sales berdasarkan harga perusahaan dan harga jual ke toko
-  const totalCompanySales = todayVisits.reduce((acc, v) => {
-    if (!v.purchaseOrder) return acc;
-    if (v.purchaseOrder.totalCompanyAmountIdr) {
-      return acc + v.purchaseOrder.totalCompanyAmountIdr;
+  // Resolusi Tanggal & Prefix Bulan Ini
+  const todayDateStr = useMemo(() => {
+    if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+      return selectedDate;
     }
+    return now.toISOString().split('T')[0];
+  }, [selectedDate]);
+
+  const currentMonthPrefix = useMemo(() => {
+    return todayDateStr.slice(0, 7); // 'YYYY-MM'
+  }, [todayDateStr]);
+
+  // Perhitungan Hari Efektif Kerja Bulan Ini (Senin - Sabtu, Minggu Libur)
+  const effectiveDaysInfo = useMemo(() => {
+    return getEffectiveWorkingDaysInMonth(todayDateStr);
+  }, [todayDateStr]);
+
+  // Target Bulanan & Target Harian (terisi otomatis dari rumus target bulanan / hari efektif)
+  const monthlyOrderTargetIdr = useMemo(() => {
     return (
-      acc +
-      v.purchaseOrder.items.reduce(
-        (sum, item) =>
-          sum +
-          (item.companyPriceIdr ?? item.unitPriceIdr) *
-            item.quantity,
-        0
-      )
+      salesRep.monthlyOrderTargetIdr ||
+      (salesRep.dailyOrderTargetIdr
+        ? salesRep.dailyOrderTargetIdr * effectiveDaysInfo.effectiveWorkingDays
+        : 60000000)
     );
-  }, 0);
+  }, [salesRep.monthlyOrderTargetIdr, salesRep.dailyOrderTargetIdr, effectiveDaysInfo.effectiveWorkingDays]);
 
-  const totalStoreSales = todayVisits.reduce((acc, v) => {
-    if (!v.purchaseOrder) return acc;
-    if (v.purchaseOrder.totalStoreAmountIdr) {
-      return acc + v.purchaseOrder.totalStoreAmountIdr;
-    }
-    return acc + v.purchaseOrder.netAmountIdr;
-  }, 0);
+  const dailyOrderTargetIdr = useMemo(() => {
+    return calculateDailyTargetFromMonthly(
+      monthlyOrderTargetIdr,
+      effectiveDaysInfo.effectiveWorkingDays
+    );
+  }, [monthlyOrderTargetIdr, effectiveDaysInfo.effectiveWorkingDays]);
 
-  // 7. Retur Barang Toko (Bad Stock / Expired) yang mengurangi Sales Achievement
-  const totalReturnAmount = todayVisits.reduce((acc, v) => {
-    if (v.totalReturnAmountIdr) return acc + v.totalReturnAmountIdr;
-    if (v.purchaseOrder?.totalReturnAmountIdr) return acc + v.purchaseOrder.totalReturnAmountIdr;
-    if (v.returns) {
-      return acc + v.returns.reduce((sum, r) => sum + (r.subtotalReturnIdr || 0), 0);
-    }
-    return acc;
-  }, 0);
+  const dailyVisitTarget = salesRep.dailyVisitTarget || 25;
+  const monthlyVisitTarget = salesRep.monthlyVisitTarget || dailyVisitTarget * effectiveDaysInfo.effectiveWorkingDays;
 
-  // Sales Achievement bersih setelah dikurangi retur
-  const netSalesAchievement = Math.max(0, totalStoreSales - totalReturnAmount);
+  // Filter kunjungan Hari Ini vs Bulan Ini (sudah diisolasi untuk akun sales yang aktif)
+  const todayVisits = useMemo(() => {
+    return visits.filter((v) => v.date === todayDateStr);
+  }, [visits, todayDateStr]);
 
-  // Selisih harga bersih (bisa negatif jika harga jual lebih rendah dari harga perusahaan / sales tombok)
-  const rawPriceDifference = totalStoreSales - totalCompanySales;
+  const monthVisits = useMemo(() => {
+    return visits.filter((v) => v.date && v.date.startsWith(currentMonthPrefix));
+  }, [visits, currentMonthPrefix]);
 
-  const targetAchievementPercent = Math.min(
+  // Helper kalkulasi metrik finansial
+  const computeFinancials = (visitList: StoreVisit[]) => {
+    const visitsCount = visitList.length;
+    const orderVisits = visitList.filter(
+      (v) => v.outcome === VisitOutcome.ORDER && v.purchaseOrder
+    );
+    const noOrderVisits = visitList.filter(
+      (v) => v.outcome === VisitOutcome.NO_ORDER
+    );
+    const ordersCount = orderVisits.length;
+    const noOrdersCount = noOrderVisits.length;
+
+    // Total Penjualan Faktur Toko
+    const storeSales = orderVisits.reduce((acc, v) => {
+      const po = v.purchaseOrder;
+      if (!po) return acc;
+      return acc + (po.totalStoreAmountIdr ?? po.netAmountIdr);
+    }, 0);
+
+    // Total HPP Perusahaan
+    const companySales = orderVisits.reduce((acc, v) => {
+      const po = v.purchaseOrder;
+      if (!po) return acc;
+      if (po.totalCompanyAmountIdr) return acc + po.totalCompanyAmountIdr;
+      return (
+        acc +
+        po.items.reduce(
+          (sum, item) => sum + (item.companyPriceIdr ?? item.unitPriceIdr) * item.quantity,
+          0
+        )
+      );
+    }, 0);
+
+    // Total Retur Toko
+    const returnAmount = visitList.reduce((acc, v) => {
+      if (v.totalReturnAmountIdr) return acc + v.totalReturnAmountIdr;
+      if (v.purchaseOrder?.totalReturnAmountIdr) return acc + v.purchaseOrder.totalReturnAmountIdr;
+      if (v.returns) {
+        return acc + v.returns.reduce((sum, r) => sum + (r.subtotalReturnIdr || 0), 0);
+      }
+      return acc;
+    }, 0);
+
+    // Sales Bersih Setelah Retur
+    const netSales = Math.max(0, storeSales - returnAmount);
+
+    // Selisih Harga Jual Toko vs HPP Pabrik (+ Margin atau - Tombok)
+    const selisih = storeSales - companySales;
+
+    return {
+      visitsCount,
+      ordersCount,
+      noOrdersCount,
+      storeSales,
+      companySales,
+      returnAmount,
+      netSales,
+      selisih,
+    };
+  };
+
+  const dailyFin = useMemo(() => computeFinancials(todayVisits), [todayVisits]);
+  const monthlyFin = useMemo(() => computeFinancials(monthVisits), [monthVisits]);
+
+  // Persentase Pencapaian Target
+  const dailyAchievementPercent = dailyOrderTargetIdr > 0
+    ? Math.round((dailyFin.netSales / dailyOrderTargetIdr) * 100)
+    : 0;
+
+  const monthlyAchievementPercent = monthlyOrderTargetIdr > 0
+    ? Math.round((monthlyFin.netSales / monthlyOrderTargetIdr) * 100)
+    : 0;
+
+  const dailyVisitPercent = Math.min(
     100,
-    Math.round((netSalesAchievement / salesRep.dailyOrderTargetIdr) * 100)
+    Math.round((dailyFin.visitsCount / dailyVisitTarget) * 100)
   );
+
+  const monthlyVisitPercent = Math.min(
+    100,
+    Math.round((monthlyFin.visitsCount / monthlyVisitTarget) * 100)
+  );
+
+  const monthlyRemainingTarget = Math.max(0, monthlyOrderTargetIdr - monthlyFin.netSales);
+
+  // Active view financials sesuai tab yang dipilih sales
+  const activeFin = activePerformanceTab === 'HARI_INI' ? dailyFin : monthlyFin;
+  const activeTargetSales = activePerformanceTab === 'HARI_INI' ? dailyOrderTargetIdr : monthlyOrderTargetIdr;
+  const activePercent = activePerformanceTab === 'HARI_INI' ? dailyAchievementPercent : monthlyAchievementPercent;
 
   return (
     <div className="space-y-6 pb-20 md:pb-6">
-      {/* Hero Welcome Card (Warna utama Biru, Putih, Kuning) */}
+      {/* Hero Welcome Card */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-900 via-blue-800 to-blue-950 text-white shadow-xl border border-blue-700/50 p-6 sm:p-8">
         {/* Decorative Golden & White Glow Orbs */}
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-amber-400/15 rounded-full blur-3xl pointer-events-none" />
@@ -154,27 +243,31 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
-            {/* 1. Hari & Tanggal Otomatis */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-semibold text-blue-100 shadow-2xs">
+            {/* 1. Hari & Tanggal Otomatis + Info Hari Kerja Efektif */}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-semibold text-blue-100 shadow-2xs flex-wrap">
               <Calendar className="w-3.5 h-3.5 text-amber-400" />
               <span>{autoDateIndonesian}</span>
               <span className="w-1 h-1 rounded-full bg-amber-400" />
-              <span className="text-amber-300 font-mono">Area Karawang</span>
+              <span className="text-amber-300 font-mono">
+                {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif Bulan Ini
+              </span>
             </div>
 
-            {/* 2. Sapaan dengan field Nama */}
+            {/* 2. Sapaan dengan field Nama Sales */}
             <div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white font-sans">
                 {timeGreeting}, <span className="text-amber-400">{displayName}</span>!
               </h1>
-              <p className="text-xs sm:text-sm text-blue-200 mt-1 flex items-center gap-2">
-                <span>{salesRep.role}</span>
+              <p className="text-xs sm:text-sm text-blue-200 mt-1 flex items-center gap-2 flex-wrap">
+                <span className="font-semibold">{salesRep.role}</span>
                 <span>·</span>
                 <span className="text-blue-100">{salesRep.email}</span>
+                <span>·</span>
+                <span className="text-amber-300 font-mono">Area Karawang</span>
               </p>
             </div>
 
-            {/* 3. Kutipan */}
+            {/* Kutipan Resmi IFM */}
             <div className="flex items-start gap-2.5 p-3 sm:p-3.5 rounded-2xl bg-blue-950/60 border border-blue-700/40 max-w-2xl">
               <Quote className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-xs sm:text-sm text-blue-100 font-medium italic leading-relaxed">
@@ -183,7 +276,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
             </div>
           </div>
 
-          {/* 4. Tombol Record Visit yang Jelas & Menonjol */}
+          {/* Action Buttons: Record Visit Toko */}
           <div className="flex flex-col sm:flex-row md:flex-col items-stretch sm:items-center md:items-end gap-3 shrink-0">
             <button
               type="button"
@@ -198,211 +291,372 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
               </span>
             </button>
 
-            <span className="text-[11px] text-blue-200 text-center md:text-right">
-              Target Kunjungan: <strong className="text-white">{salesRep.dailyVisitTarget} Toko / Hari</strong>
-            </span>
+            <div className="flex items-center gap-2 text-xs text-blue-200 text-center md:text-right flex-wrap justify-center md:justify-end">
+              <span>Target Hari Ini: <strong className="text-white font-mono">{formatIdr(dailyOrderTargetIdr)}</strong></span>
+              <span>·</span>
+              <span>Kunjungan: <strong className="text-white">{dailyVisitTarget} Toko</strong></span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 5. Kartu Total Visit, Total Order, Total No Order */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Total Visit */}
-        <div className="p-5 rounded-2xl bg-white border border-blue-100 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Total Visit
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-              <StoreIcon className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-blue-950 font-mono">
-              {totalVisitsCount}
-            </span>
-            <span className="text-xs text-slate-500">
-              / target {salesRep.dailyVisitTarget} toko
-            </span>
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-            <span className="text-slate-500">Pencapaian Kunjungan</span>
-            <span className="font-bold text-blue-700">
-              {Math.round((totalVisitsCount / salesRep.dailyVisitTarget) * 100)}%
-            </span>
-          </div>
-        </div>
-
-        {/* Total Order */}
-        <div className="p-5 rounded-2xl bg-white border border-emerald-100 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
-              Total Order
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-              <ShoppingBag className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-emerald-700 font-mono">
-              {totalOrdersCount}
-            </span>
-            <span className="text-xs text-emerald-600 font-medium">Toko Beli</span>
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-            <span className="text-slate-500">Strike Rate (Konversi)</span>
-            <span className="font-bold text-emerald-700">
-              {totalVisitsCount > 0
-                ? `${Math.round((totalOrdersCount / totalVisitsCount) * 100)}%`
-                : '0%'}
-            </span>
-          </div>
-        </div>
-
-        {/* Total No Order */}
-        <div className="p-5 rounded-2xl bg-white border border-amber-100 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">
-              Total No Order
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
-              <AlertCircle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-amber-700 font-mono">
-              {totalNoOrdersCount}
-            </span>
-            <span className="text-xs text-amber-600 font-medium">Tidak Beli</span>
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-            <span className="text-slate-500">Rasio Kendala Lapangan</span>
-            <span className="font-bold text-amber-700">
-              {totalVisitsCount > 0
-                ? `${Math.round((totalNoOrdersCount / totalVisitsCount) * 100)}%`
-                : '0%'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 6. Total Sales berdasarkan Harga Perusahaan dan Harga Jual Toko */}
-      <div className="rounded-3xl bg-white border border-blue-100 shadow-xs p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
+      {/* ========================================================================= */}
+      {/* PUSAT PEMANTAUAN TARGET & PERFORMA SALES (HARIAN & BULANAN)                 */}
+      {/* ========================================================================= */}
+      <div className="rounded-3xl bg-white border border-blue-100 shadow-sm p-5 sm:p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-black text-blue-950 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-blue-700" />
-              Realisasi Penjualan Hari Ini
-            </h2>
-            <p className="text-xs text-slate-500">
-              Perbandingan HPP Perusahaan vs Harga Faktur Jual ke Toko
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+                <Target className="w-5 h-5" />
+              </div>
+              <h2 className="text-base font-black text-blue-950">
+                Pusat Target & Performa Sales
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Pantau realisasi sales harian dan performa akumulasi bulanan terhadap target PT IFM
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-bold font-mono">
-              Target: {formatIdr(salesRep.dailyOrderTargetIdr)}
-            </span>
+
+          {/* Toggle Switch: Hari Ini vs Bulan Ini */}
+          <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
+            <button
+              type="button"
+              onClick={() => setActivePerformanceTab('HARI_INI')}
+              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                activePerformanceTab === 'HARI_INI'
+                  ? 'bg-blue-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Target Hari Ini</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePerformanceTab('BULAN_INI')}
+              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                activePerformanceTab === 'BULAN_INI'
+                  ? 'bg-blue-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Target Bulan Ini (MTD)</span>
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Harga Jual ke Toko (Invoice Omzet) */}
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-700 to-blue-900 text-white space-y-1">
-            <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider block">
-              Total Sales Toko (Kotor)
-            </span>
-            <p className="text-2xl font-black font-mono text-white">
-              {formatIdr(totalStoreSales)}
-            </p>
-            <p className="text-[11px] text-blue-200 pt-1">
-              Nilai kuitansi pesanan yang ditagihkan ke outlet
-            </p>
-          </div>
-
-          {/* Pengurang Retur Toko */}
-          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-1">
-            <span className="text-[11px] font-bold text-rose-800 uppercase tracking-wider block">
-              Potongan Retur Barang
-            </span>
-            <p className="text-2xl font-black font-mono text-rose-700">
-              - {formatIdr(totalReturnAmount)}
-            </p>
-            <p className="text-[11px] text-rose-600 pt-1">
-              Pengembalian bad stock & expired dari toko
-            </p>
-          </div>
-
-          {/* Harga Perusahaan (HPP Distributor) */}
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Total Harga Pabrik (HPP)
-            </span>
-            <p className="text-2xl font-black font-mono text-slate-800">
-              {formatIdr(totalCompanySales)}
-            </p>
-            <p className="text-[11px] text-slate-500 pt-1">
-              Harga pokok resmi PT Indofood Fortuna Makmur (IFM)
-            </p>
-          </div>
-
-          {/* Selisih Harga (Margin Toko / Tombok Sales) */}
+        {/* DUAL CARDS: Performa Harian vs Performa Bulanan */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* KARTU 1: PERFORMA HARI INI */}
           <div
-            className={`p-4 rounded-2xl border space-y-1 ${
-              rawPriceDifference < 0
-                ? 'bg-amber-50 border-amber-300 text-amber-950'
-                : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+            className={`p-5 rounded-2xl border transition-all ${
+              activePerformanceTab === 'HARI_INI'
+                ? 'bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/50 border-blue-400 ring-2 ring-blue-500/20 shadow-md'
+                : 'bg-white border-slate-200/90 hover:border-blue-200 shadow-2xs'
             }`}
           >
-            <span
-              className={`text-[11px] font-bold uppercase tracking-wider block ${
-                rawPriceDifference < 0 ? 'text-amber-800' : 'text-emerald-800'
-              }`}
-            >
-              Selisih Harga {rawPriceDifference < 0 ? '(Tombok Sales)' : '(Margin)'}
-            </span>
-            <p
-              className={`text-2xl font-black font-mono ${
-                rawPriceDifference < 0 ? 'text-amber-700' : 'text-emerald-700'
-              }`}
-            >
-              {rawPriceDifference < 0
-                ? `- ${formatIdr(Math.abs(rawPriceDifference))}`
-                : `+ ${formatIdr(rawPriceDifference)}`}
-            </p>
-            <p
-              className={`text-[11px] pt-1 ${
-                rawPriceDifference < 0
-                  ? 'text-amber-700 font-semibold'
-                  : 'text-emerald-700/80'
-              }`}
-            >
-              {rawPriceDifference < 0
-                ? 'Harga jual di bawah HPP pabrik (tombok sales)'
-                : 'Estimasi selisih keuntungan putaran barang'}
-            </p>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Target & Realisasi Hari Ini
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-200">
+                Target: {formatIdr(dailyOrderTargetIdr)}
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Sales Achievement Harian */}
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-slate-500 font-medium">Realisasi Sales Bersih:</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-black font-mono text-blue-950">
+                      {formatIdr(dailyFin.netSales)}
+                    </span>
+                    <span className="text-xs font-bold text-blue-700 font-mono">
+                      ({dailyAchievementPercent}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden mt-1.5 border border-slate-200/60">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      dailyAchievementPercent >= 100
+                        ? 'bg-emerald-500'
+                        : dailyAchievementPercent >= 75
+                        ? 'bg-blue-600'
+                        : 'bg-gradient-to-r from-amber-500 to-blue-600'
+                    }`}
+                    style={{ width: `${Math.min(100, dailyAchievementPercent)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Grid Mini Harian */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Kunjungan</span>
+                  <p className="text-sm font-bold text-slate-900 font-mono mt-0.5">
+                    {dailyFin.visitsCount} <span className="text-[10px] font-normal text-slate-400">/ {dailyVisitTarget}</span>
+                  </p>
+                  <span className="text-[10px] text-blue-700 font-semibold">{dailyVisitPercent}% target</span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Toko Beli</span>
+                  <p className="text-sm font-bold text-emerald-700 font-mono mt-0.5">
+                    {dailyFin.ordersCount} <span className="text-[10px] font-normal text-slate-400">Outlet</span>
+                  </p>
+                  <span className="text-[10px] text-slate-500">
+                    {dailyFin.visitsCount > 0 ? `${Math.round((dailyFin.ordersCount / dailyFin.visitsCount) * 100)}% strike` : '0%'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Retur Toko</span>
+                  <p className="text-xs font-bold text-rose-700 font-mono mt-0.5 truncate">
+                    {dailyFin.returnAmount > 0 ? `- ${formatIdr(dailyFin.returnAmount)}` : 'Rp 0'}
+                  </p>
+                  <span className="text-[10px] text-slate-400">pengurang omset</span>
+                </div>
+              </div>
+
+              {/* Selisih Harian */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-600">Selisih Harga Hari Ini:</span>
+                <span
+                  className={`font-mono font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1 ${
+                    dailyFin.selisih < 0
+                      ? 'bg-rose-100 text-rose-800'
+                      : dailyFin.selisih > 0
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {dailyFin.selisih < 0 ? (
+                    <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
+                  ) : dailyFin.selisih > 0 ? (
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : null}
+                  <span>
+                    {dailyFin.selisih >= 0 ? '+' : ''}
+                    {formatIdr(dailyFin.selisih)}
+                  </span>
+                  <span className="text-[10px] font-normal">
+                    {dailyFin.selisih < 0 ? '(Tombok)' : dailyFin.selisih > 0 ? '(Margin)' : '(Impas)'}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* KARTU 2: PERFORMA BULAN INI (MTD) */}
+          <div
+            className={`p-5 rounded-2xl border transition-all ${
+              activePerformanceTab === 'BULAN_INI'
+                ? 'bg-gradient-to-br from-indigo-50/90 via-white to-blue-50/50 border-indigo-400 ring-2 ring-indigo-500/20 shadow-md'
+                : 'bg-white border-slate-200/90 hover:border-indigo-200 shadow-2xs'
+            }`}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Target & Performa Bulan Ini ({effectiveDaysInfo.monthName})
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200">
+                Target: {formatIdr(monthlyOrderTargetIdr)}
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Sales Achievement Bulanan */}
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-slate-500 font-medium">Akumulasi Realisasi MTD:</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-black font-mono text-indigo-950">
+                      {formatIdr(monthlyFin.netSales)}
+                    </span>
+                    <span className="text-xs font-bold text-indigo-700 font-mono">
+                      ({monthlyAchievementPercent}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden mt-1.5 border border-slate-200/60">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      monthlyAchievementPercent >= 100
+                        ? 'bg-emerald-500'
+                        : monthlyAchievementPercent >= 75
+                        ? 'bg-indigo-600'
+                        : 'bg-gradient-to-r from-amber-500 to-indigo-600'
+                    }`}
+                    style={{ width: `${Math.min(100, monthlyAchievementPercent)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Grid Mini Bulanan */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Total Visit</span>
+                  <p className="text-sm font-bold text-slate-900 font-mono mt-0.5">
+                    {monthlyFin.visitsCount} <span className="text-[10px] font-normal text-slate-400">/ {monthlyVisitTarget}</span>
+                  </p>
+                  <span className="text-[10px] text-indigo-700 font-semibold">{monthlyVisitPercent}% target</span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Total Order</span>
+                  <p className="text-sm font-bold text-indigo-700 font-mono mt-0.5">
+                    {monthlyFin.ordersCount} <span className="text-[10px] font-normal text-slate-400">PO</span>
+                  </p>
+                  <span className="text-[10px] text-slate-500">
+                    {monthlyFin.visitsCount > 0 ? `${Math.round((monthlyFin.ordersCount / monthlyFin.visitsCount) * 100)}% strike` : '0%'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Sisa Target</span>
+                  <p className="text-xs font-bold text-amber-700 font-mono mt-0.5 truncate">
+                    {formatIdr(monthlyRemainingTarget)}
+                  </p>
+                  <span className="text-[10px] text-slate-500">perlu dicapai</span>
+                </div>
+              </div>
+
+              {/* Info Hari Efektif & Selisih Bulanan */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-600 flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>{effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif (Senin–Sabtu)</span>
+                </span>
+                <span
+                  className={`font-mono font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1 ${
+                    monthlyFin.selisih < 0
+                      ? 'bg-rose-100 text-rose-800'
+                      : monthlyFin.selisih > 0
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  <span>
+                    {monthlyFin.selisih >= 0 ? '+' : ''}
+                    {formatIdr(monthlyFin.selisih)}
+                  </span>
+                  <span className="text-[10px] font-normal">
+                    {monthlyFin.selisih < 0 ? '(Tombok)' : '(Margin)'}
+                  </span>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Progress Bar Target */}
-        <div className="space-y-1.5 pt-1">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <span className="text-slate-600">
-              Sales Achievement (Net Omset setelah Retur):
+        {/* Ringkasan Finansial Detail (Toko vs HPP vs Retur vs Selisih) */}
+        <div className="pt-2">
+          <div className="flex items-center justify-between pb-3">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Rincian Keuangan Realisasi ({activePerformanceTab === 'HARI_INI' ? 'Hari Ini' : 'Bulan Ini'})
             </span>
-            <span className="font-mono text-blue-900 font-bold">
-              {targetAchievementPercent}% ({formatIdr(netSalesAchievement)} / {formatIdr(salesRep.dailyOrderTargetIdr)})
+            <span className="text-[11px] font-mono font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded">
+              Target: {formatIdr(activeTargetSales)}
             </span>
           </div>
-          <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Total Sales Toko */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-700 to-blue-900 text-white space-y-1">
+              <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider block">
+                Total Sales Toko (Kotor)
+              </span>
+              <p className="text-2xl font-black font-mono text-white">
+                {formatIdr(activeFin.storeSales)}
+              </p>
+              <p className="text-[11px] text-blue-200 pt-1">
+                Nilai faktur kuitansi yang ditagihkan ke outlet
+              </p>
+            </div>
+
+            {/* Pengurang Retur Toko */}
+            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-1">
+              <span className="text-[11px] font-bold text-rose-800 uppercase tracking-wider block">
+                Potongan Retur Barang
+              </span>
+              <p className="text-2xl font-black font-mono text-rose-700">
+                - {formatIdr(activeFin.returnAmount)}
+              </p>
+              <p className="text-[11px] text-rose-600 pt-1">
+                Pengembalian bad stock & expired dari toko
+              </p>
+            </div>
+
+            {/* HPP Perusahaan */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                Total Harga Pabrik (HPP)
+              </span>
+              <p className="text-2xl font-black font-mono text-slate-800">
+                {formatIdr(activeFin.companySales)}
+              </p>
+              <p className="text-[11px] text-slate-500 pt-1">
+                Harga pokok resmi PT Indofood Fortuna Makmur
+              </p>
+            </div>
+
+            {/* Selisih Harga (Margin Toko / Tombok Sales) */}
             <div
-              className="h-full bg-gradient-to-r from-blue-700 via-blue-600 to-amber-400 rounded-full transition-all duration-500"
-              style={{ width: `${targetAchievementPercent}%` }}
-            />
+              className={`p-4 rounded-2xl border space-y-1 ${
+                activeFin.selisih < 0
+                  ? 'bg-amber-50 border-amber-300 text-amber-950'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+              }`}
+            >
+              <span
+                className={`text-[11px] font-bold uppercase tracking-wider block ${
+                  activeFin.selisih < 0 ? 'text-amber-800' : 'text-emerald-800'
+                }`}
+              >
+                Selisih Harga {activeFin.selisih < 0 ? '(Tombok Sales)' : '(Margin)'}
+              </span>
+              <p
+                className={`text-2xl font-black font-mono ${
+                  activeFin.selisih < 0 ? 'text-amber-700' : 'text-emerald-700'
+                }`}
+              >
+                {activeFin.selisih < 0
+                  ? `- ${formatIdr(Math.abs(activeFin.selisih))}`
+                  : `+ ${formatIdr(activeFin.selisih)}`}
+              </p>
+              <p
+                className={`text-[11px] pt-1 ${
+                  activeFin.selisih < 0
+                    ? 'text-amber-700 font-semibold'
+                    : 'text-emerald-700/80'
+                }`}
+              >
+                {activeFin.selisih < 0
+                  ? 'Harga jual di bawah HPP pabrik (tombok sales)'
+                  : 'Estimasi surplus selisih keuntungan putaran barang'}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Quick Navigation Cards (Visit, Order, Profile) */}
+      {/* Kartu Navigasi Cepat (Visit, Order, Profile) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <button
           type="button"
@@ -459,7 +713,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
           <div>
             <h3 className="text-sm font-bold text-blue-950 flex items-center gap-2">
               <StoreIcon className="w-4 h-4 text-blue-700" />
-              Kunjungan & Transaksi Terakhir
+              Kunjungan & Transaksi Terakhir ({todayVisits.length} Hari Ini)
             </h3>
             <p className="text-xs text-slate-500">
               Daftar toko yang telah dikunjungi oleh {displayName}
@@ -479,10 +733,10 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
           <div className="text-center py-8 px-4 rounded-2xl bg-slate-50 border border-dashed border-slate-200">
             <StoreIcon className="w-8 h-8 text-slate-400 mx-auto mb-2" />
             <p className="text-xs font-bold text-slate-700">
-              Belum ada kunjungan toko yang tercatat hari ini.
+              Belum ada kunjungan toko yang tercatat hari ini ({todayDateStr}).
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Klik tombol "Record Visit Toko" di atas untuk memulai pencatatan.
+              Klik tombol "Record Visit Toko" di atas untuk memulai pencatatan rute dan pesanan.
             </p>
           </div>
         ) : (

@@ -17,8 +17,12 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { IndofoodSnackTimeLogo } from './IndofoodSnackTimeLogo';
-import { extractNameFromEmail, formatIdr } from '../data/karawangData';
+import {
+  calculateDailyTargetFromMonthly,
+  extractNameFromEmail,
+  formatIdr,
+  getEffectiveWorkingDaysInMonth,
+} from '../data/karawangData';
 import {
   ACTIVE_FIREBASE_PROJECT_ID,
   ACTIVE_FIRESTORE_DATABASE_ID,
@@ -158,44 +162,87 @@ export const SalesProfileView: React.FC<SalesProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Target & Kinerja Harian */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-5 rounded-2xl bg-white border border-blue-100 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-            Target Kunjungan Harian
-          </span>
-          <p className="text-2xl font-black font-mono text-blue-950">
-            {totalVisitsCount} / {salesRep.dailyVisitTarget} Toko
-          </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Coverage Area Wilayah Karawang
-          </p>
-        </div>
+      {/* Target & Kinerja Sales: Harian & Bulanan */}
+      {(() => {
+        const effectiveDaysInfo = getEffectiveWorkingDaysInMonth();
+        const monthlyTargetIdr =
+          salesRep.monthlyOrderTargetIdr ||
+          (salesRep.dailyOrderTargetIdr
+            ? salesRep.dailyOrderTargetIdr * effectiveDaysInfo.effectiveWorkingDays
+            : 60000000);
+        const dailyTargetIdr =
+          salesRep.dailyOrderTargetIdr ||
+          calculateDailyTargetFromMonthly(monthlyTargetIdr, effectiveDaysInfo.effectiveWorkingDays);
+        const monthlyVisitTarget = salesRep.monthlyVisitTarget || (salesRep.dailyVisitTarget || 25) * effectiveDaysInfo.effectiveWorkingDays;
 
-        <div className="p-5 rounded-2xl bg-white border border-emerald-100 shadow-xs">
-          <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block mb-1">
-            Realisasi Order
-          </span>
-          <p className="text-2xl font-black font-mono text-emerald-700">
-            {totalOrdersCount} Transaksi
-          </p>
-          <p className="text-xs text-emerald-600 mt-1">
-            Strike Rate: {totalVisitsCount > 0 ? Math.round((totalOrdersCount / totalVisitsCount) * 100) : 0}%
-          </p>
-        </div>
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Target className="w-4 h-4 text-blue-700" />
+                Target Penjualan & Kinerja Sales
+              </h2>
+              <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900 border border-blue-200">
+                {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({effectiveDaysInfo.monthName})
+              </span>
+            </div>
 
-        <div className="p-5 rounded-2xl bg-white border border-amber-100 shadow-xs">
-          <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block mb-1">
-            Total Sales Hari Ini
-          </span>
-          <p className="text-xl font-black font-mono text-blue-950 truncate">
-            {formatIdr(totalSalesIdr)}
-          </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Target: {formatIdr(salesRep.dailyOrderTargetIdr)}
-          </p>
-        </div>
-      </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Target Kunjungan Harian */}
+              <div className="p-4 rounded-2xl bg-white border border-blue-100 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  Kunjungan Hari Ini
+                </span>
+                <p className="text-2xl font-black font-mono text-blue-950">
+                  {totalVisitsCount} <span className="text-xs font-normal text-slate-400">/ {salesRep.dailyVisitTarget || 25} Toko</span>
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Target harian standar PT IFM
+                </p>
+              </div>
+
+              {/* Target Sales Harian */}
+              <div className="p-4 rounded-2xl bg-white border border-blue-100 shadow-2xs">
+                <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider block mb-1">
+                  Target Sales Harian
+                </span>
+                <p className="text-xl font-black font-mono text-blue-950 truncate">
+                  {formatIdr(dailyTargetIdr)}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Realisasi: {formatIdr(totalSalesIdr)} ({dailyTargetIdr > 0 ? Math.round((totalSalesIdr / dailyTargetIdr) * 100) : 0}%)
+                </p>
+              </div>
+
+              {/* Target Sales Bulanan */}
+              <div className="p-4 rounded-2xl bg-white border border-indigo-100 shadow-2xs">
+                <span className="text-[11px] font-bold text-indigo-800 uppercase tracking-wider block mb-1">
+                  Target Sales Bulanan
+                </span>
+                <p className="text-xl font-black font-mono text-indigo-950 truncate">
+                  {formatIdr(monthlyTargetIdr)}
+                </p>
+                <p className="text-[11px] text-indigo-600 mt-1">
+                  Rumus: Harian × {effectiveDaysInfo.effectiveWorkingDays} Hari (Senin–Sabtu)
+                </p>
+              </div>
+
+              {/* Target Kunjungan Bulanan */}
+              <div className="p-4 rounded-2xl bg-white border border-emerald-100 shadow-2xs">
+                <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block mb-1">
+                  Target Kunjungan Bulanan
+                </span>
+                <p className="text-2xl font-black font-mono text-emerald-700">
+                  {monthlyVisitTarget} <span className="text-xs font-normal text-slate-400">Toko</span>
+                </p>
+                <p className="text-[11px] text-emerald-600 mt-1">
+                  {salesRep.dailyVisitTarget || 25} toko/hari × {effectiveDaysInfo.effectiveWorkingDays} hari
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Wilayah Penugasan Karawang */}
       <div className="p-6 rounded-3xl bg-white border border-blue-100 shadow-xs space-y-4">

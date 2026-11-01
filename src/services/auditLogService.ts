@@ -93,7 +93,7 @@ export function recordAdminAuditLog(
       adminEmail: categoryOrEntry.adminEmail || 'gtmifmkarawang@gmail.com',
       adminName: categoryOrEntry.adminName || 'Admin IFM Karawang',
       actionType: categoryOrEntry.actionType,
-      targetType: (categoryOrEntry.targetType as 'Toko' | 'Produk' | 'Order' | 'Sistem') || 'Sistem',
+      targetType: (categoryOrEntry.targetType as 'Toko' | 'Produk' | 'Order' | 'Sistem' | 'Sales') || 'Sistem',
       targetId: categoryOrEntry.targetId,
       targetTitle: categoryOrEntry.targetTitle,
       details: categoryOrEntry.details,
@@ -101,10 +101,11 @@ export function recordAdminAuditLog(
     };
   } else {
     const action = categoryOrEntry;
-    let targetType: 'Toko' | 'Produk' | 'Order' | 'Sistem' = 'Sistem';
+    let targetType: 'Toko' | 'Produk' | 'Order' | 'Sistem' | 'Sales' = 'Sistem';
     if (action.includes('TOKO')) targetType = 'Toko';
     else if (action.includes('PRODUK')) targetType = 'Produk';
     else if (action.includes('ORDER')) targetType = 'Order';
+    else if (action.includes('SALES')) targetType = 'Sales';
 
     newLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,

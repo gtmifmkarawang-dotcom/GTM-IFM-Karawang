@@ -40,6 +40,7 @@ import {
 import { SalesDashboardView } from './components/SalesDashboardView';
 import { SalesLoginModal } from './components/SalesLoginModal';
 import { SalesProfileView } from './components/SalesProfileView';
+import { SalesTeamManagementView } from './components/SalesTeamManagementView';
 import { StoreDirectoryView } from './components/StoreDirectoryView';
 import { VisitRecorderModal } from './components/VisitRecorderModal';
 import { getSavedFirebaseConfig } from './config/firebase';
@@ -56,11 +57,14 @@ import {
 import {
   INITIAL_PLANNED_ROUTE,
   INITIAL_SALES_REP,
+  INITIAL_SALES_REPRESENTATIVES,
   INITIAL_STORES,
   INITIAL_VISITS,
   PRODUCT_SKU_CATALOG,
+  calculateDailyTargetFromMonthly,
   extractNameFromEmail,
   formatIdr,
+  getEffectiveWorkingDaysInMonth,
 } from './data/karawangData';
 import {
   ACTIVE_FIREBASE_PROJECT_ID,
@@ -91,7 +95,8 @@ type ActiveSection =
   | 'stores'
   | 'products'
   | 'no_orders'
-  | 'audit_logs';
+  | 'audit_logs'
+  | 'sales_team';
 
 type VisitListFilter = 'ALL' | 'ORDER' | 'NO_ORDER' | 'ROUTE';
 
@@ -211,6 +216,58 @@ function mapFirestoreProductDocsToCatalog(
       storePrice = Math.round((companyPrice * 1.065) / 500) * 500;
     }
 
+    // 1b. HARGA PERUSAHAAN RCG & PCS DARI FIRESTORE
+    let companyPriceRcg = 0;
+    const rcgCandidates = [
+      'harga_perusahaan_rcg',
+      'harga_rcg',
+      'hargaRcg',
+      'companyPriceRcg',
+      'harga_renceng',
+    ];
+    for (const key of rcgCandidates) {
+      const val = d[key];
+      if (typeof val === 'number' && !Number.isNaN(val) && val > 0) {
+        companyPriceRcg = val;
+        break;
+      }
+      if (typeof val === 'string' && val.trim()) {
+        const num = Number(val.replace(/[^0-9.-]+/g, ''));
+        if (!Number.isNaN(num) && num > 0) {
+          companyPriceRcg = num;
+          break;
+        }
+      }
+    }
+    if (!companyPriceRcg || companyPriceRcg <= 0) {
+      companyPriceRcg = Math.round(companyPrice / 8);
+    }
+
+    let companyPricePcs = 0;
+    const pcsCandidates = [
+      'harga_perusahaan_pcs',
+      'harga_pcs',
+      'hargaPcs',
+      'companyPricePcs',
+    ];
+    for (const key of pcsCandidates) {
+      const val = d[key];
+      if (typeof val === 'number' && !Number.isNaN(val) && val > 0) {
+        companyPricePcs = val;
+        break;
+      }
+      if (typeof val === 'string' && val.trim()) {
+        const num = Number(val.replace(/[^0-9.-]+/g, ''));
+        if (!Number.isNaN(num) && num > 0) {
+          companyPricePcs = num;
+          break;
+        }
+      }
+    }
+    if (!companyPricePcs || companyPricePcs <= 0) {
+      companyPricePcs = Math.round(companyPrice / 40);
+    }
+
     return {
       id: docItem.id,
       skuCode,
@@ -221,16 +278,23 @@ function mapFirestoreProductDocsToCatalog(
         {
           unit: 'CTN',
           priceIdr: storePrice,
-          companyPriceIdr: companyPrice, // HARGA PERUSAHAAN DARI FIRESTORE
+          companyPriceIdr: companyPrice, // HARGA PERUSAHAAN CTN DARI FIRESTORE
           storePriceIdr: storePrice,
           pcsPerUnit: 40,
         },
         {
           unit: 'RCG',
           priceIdr: Math.round(storePrice / 8),
-          companyPriceIdr: Math.round(companyPrice / 8), // Proporsional Renceng
+          companyPriceIdr: companyPriceRcg, // HARGA PERUSAHAAN RCG DARI FIRESTORE
           storePriceIdr: Math.round(storePrice / 8),
           pcsPerUnit: 10,
+        },
+        {
+          unit: 'Pcs',
+          priceIdr: Math.round(storePrice / 40),
+          companyPriceIdr: companyPricePcs, // HARGA PERUSAHAAN PCS DARI FIRESTORE
+          storePriceIdr: Math.round(storePrice / 40),
+          pcsPerUnit: 1,
         },
         {
           unit: 'Karton',
@@ -322,6 +386,23 @@ function getStoredStores(): Store[] {
     console.warn('Failed to parse cached stores:', err);
   }
   return INITIAL_STORES;
+}
+
+const SALES_TEAM_STORAGE_KEY = 'ifm_sales_team_cache_v1';
+
+function getStoredSalesTeam(): SalesRepresentative[] {
+  try {
+    const raw = localStorage.getItem(SALES_TEAM_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to parse cached sales team:', err);
+  }
+  return INITIAL_SALES_REPRESENTATIVES;
 }
 
 export default function App() {
@@ -421,23 +502,61 @@ export default function App() {
   };
 
   // Local UI State with Production-ready data
+  const [salesTeam, setSalesTeam] = useState<SalesRepresentative[]>(() =>
+    getStoredSalesTeam()
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SALES_TEAM_STORAGE_KEY, JSON.stringify(salesTeam));
+    } catch (e) {
+      console.warn('Failed to save sales team to localStorage:', e);
+    }
+  }, [salesTeam]);
+
   const [salesRep, setSalesRep] = useState(INITIAL_SALES_REP);
 
-  // Synced Active Sales Rep according to active login session (otomatis dari nama email)
+  // Synced Active Sales Rep according to active login session (otomatis dari nama email dan team data)
   const activeSalesRep: SalesRepresentative = useMemo(() => {
-    const email = session?.email || currentUser?.email || salesRep.email || 'gtmifmkarawang@gmail.com';
+    const rawEmail = session?.email || currentUser?.email || salesRep.email || 'gtmifmkarawang@gmail.com';
+    const email = rawEmail.toLowerCase().trim();
+    const matchedPerson = salesTeam.find(
+      (s) => (s.email || '').toLowerCase().trim() === email
+    );
+
     const name =
       session?.displayName ||
       currentUser?.displayName ||
+      matchedPerson?.name ||
       extractNameFromEmail(email, session?.role || userRole);
+
+    const effectiveDaysInfo = getEffectiveWorkingDaysInMonth();
+    const monthlyTarget =
+      matchedPerson?.monthlyOrderTargetIdr ||
+      salesRep.monthlyOrderTargetIdr ||
+      (matchedPerson?.dailyOrderTargetIdr
+        ? matchedPerson.dailyOrderTargetIdr * effectiveDaysInfo.effectiveWorkingDays
+        : 60000000);
+
+    const dailyTarget = calculateDailyTargetFromMonthly(
+      monthlyTarget,
+      effectiveDaysInfo.effectiveWorkingDays
+    );
+
+    const dailyVisit = matchedPerson?.dailyVisitTarget || salesRep.dailyVisitTarget || 25;
+    const monthlyVisit = matchedPerson?.monthlyVisitTarget || dailyVisit * effectiveDaysInfo.effectiveWorkingDays;
+
     return {
-      ...salesRep,
+      ...(matchedPerson || salesRep),
       name: name || 'GTM IFM Karawang',
       email: email,
-      dailyVisitTarget: 25,
-      dailyOrderTargetIdr: 2400000,
+      dailyVisitTarget: dailyVisit,
+      dailyOrderTargetIdr: dailyTarget,
+      monthlyOrderTargetIdr: monthlyTarget,
+      monthlyVisitTarget: monthlyVisit,
     };
-  }, [session, currentUser, salesRep, userRole]);
+  }, [session, currentUser, salesRep, salesTeam, userRole]);
+
   const [stores, setStores] = useState<Store[]>(() => getStoredStores());
   const [visits, setVisits] = useState<StoreVisit[]>(() => getStoredVisits());
   const [routeStops, setRouteStops] = useState<PlannedRouteStop[]>(
@@ -643,15 +762,55 @@ export default function App() {
       })
       .catch((err) => console.warn('Visits sync notice:', err));
 
+    // Load SalesPersons from Firestore
+    getDocs(collection(db, 'SalesPersons'))
+      .then((snap) => {
+        if (!mounted || snap.empty) return;
+        const loadedPersons: SalesRepresentative[] = snap.docs.map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return {
+            id: (typeof data.id === 'string' && data.id.trim()) || d.id,
+            employeeCode: (typeof data.employeeCode === 'string' && data.employeeCode.trim()) || `GTM-KRW-${d.id.slice(-3)}`,
+            name: (typeof data.name === 'string' && data.name.trim()) || 'Sales IFM',
+            email: (typeof data.email === 'string' && data.email.trim()) || '',
+            phone: (typeof data.phone === 'string' && data.phone.trim()) || '',
+            address: (typeof data.address === 'string' && data.address.trim()) || '',
+            photoUrl: (typeof data.photoUrl === 'string' && data.photoUrl.trim()) || '',
+            role: (data.role as any) || 'Sales Representative',
+            assignedDistricts: Array.isArray(data.assignedDistricts) ? data.assignedDistricts : [],
+            dailyVisitTarget: Number(data.dailyVisitTarget) || 25,
+            dailyOrderTargetIdr: Number(data.dailyOrderTargetIdr) || 2400000,
+            monthlyVisitTarget: Number(data.monthlyVisitTarget) || 625,
+            monthlyOrderTargetIdr: Number(data.monthlyOrderTargetIdr) || 60000000,
+            isActive: data.isActive !== false,
+            joinDate: typeof data.joinDate === 'string' ? data.joinDate : '',
+          };
+        });
+        setSalesTeam((prev) => {
+          const map = new Map<string, SalesRepresentative>();
+          prev.forEach((p) => {
+            if (p && p.id) map.set(p.id, p);
+          });
+          loadedPersons.forEach((p) => {
+            if (p && p.id) map.set(p.id, p);
+          });
+          return Array.from(map.values());
+        });
+      })
+      .catch((err) => console.warn('SalesPersons sync notice:', err));
+
     return () => {
       mounted = false;
     };
   }, [authReady]);
 
-  // Keamanan peran (Role Guard): Sembunyikan dan cegah dashboard admin jika role sales, dan sebaliknya
+  // Keamanan peran (Role Guard): Sembunyikan dan cegah dashboard admin/sales team jika role sales, dan sebaliknya
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (userRole === 'sales' && activeSection === 'admin') {
+    if (
+      userRole === 'sales' &&
+      (activeSection === 'admin' || activeSection === 'sales_team' || activeSection === 'audit_logs')
+    ) {
       setActiveSection('sales_dashboard');
     } else if (
       userRole === 'admin' &&
@@ -973,6 +1132,51 @@ export default function App() {
     );
   };
 
+  const handleAddSalesPerson = (newPerson: SalesRepresentative) => {
+    setSalesTeam((prev) => [newPerson, ...prev]);
+    setDoc(doc(db, 'SalesPersons', newPerson.id), newPerson, { merge: true }).catch((err) =>
+      console.warn('Firestore SalesPerson save notice:', err)
+    );
+    if (userRole === 'admin') {
+      logAdminAction(
+        'TAMBAH_SALES',
+        newPerson.name,
+        `Admin mendaftarkan sales person baru "${newPerson.name}" (${newPerson.employeeCode}) untuk wilayah: ${(newPerson.assignedDistricts || []).join(', ')}. Target: ${newPerson.dailyVisitTarget} Toko & ${formatIdr(newPerson.dailyOrderTargetIdr)}/Hari.`
+      );
+    }
+  };
+
+  const handleEditSalesPerson = (updatedPerson: SalesRepresentative) => {
+    setSalesTeam((prev) =>
+      prev.map((p) => (p.id === updatedPerson.id ? updatedPerson : p))
+    );
+    setDoc(doc(db, 'SalesPersons', updatedPerson.id), updatedPerson, { merge: true }).catch((err) =>
+      console.warn('Firestore SalesPerson update notice:', err)
+    );
+    if (userRole === 'admin') {
+      logAdminAction(
+        'EDIT_SALES',
+        updatedPerson.name,
+        `Admin memperbarui data sales "${updatedPerson.name}" (${updatedPerson.employeeCode}). Target: ${updatedPerson.dailyVisitTarget} Toko & ${formatIdr(updatedPerson.dailyOrderTargetIdr)}/Hari.`
+      );
+    }
+  };
+
+  const handleDeleteSalesPerson = (personId: string) => {
+    const target = salesTeam.find((p) => p.id === personId);
+    setSalesTeam((prev) => prev.filter((p) => p.id !== personId));
+    deleteDoc(doc(db, 'SalesPersons', personId)).catch((err) =>
+      console.warn('Firestore SalesPerson delete notice:', err)
+    );
+    if (userRole === 'admin') {
+      logAdminAction(
+        'HAPUS_SALES',
+        target ? target.name : personId,
+        `Admin menghapus sales person "${target ? target.name : personId}" (${target?.employeeCode || '-'}) dari sistem GTM Karawang`
+      );
+    }
+  };
+
   // Halaman Utama Awal: Tampilkan LoginPage jika pengguna belum login
   if (!isAuthenticated) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
@@ -1123,6 +1327,33 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
+                          setActiveSection('sales_team');
+                          setIsAdminMenuDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          activeSection === 'sales_team'
+                            ? 'bg-blue-700 text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Users className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>Daftar Sales Person</span>
+                        </div>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold ${
+                            activeSection === 'sales_team'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {salesTeam.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
                           setActiveSection('audit_logs');
                           setIsAdminMenuDropdownOpen(false);
                         }}
@@ -1216,6 +1447,19 @@ export default function App() {
                 }`}
               >
                 Koleksi /Product ({liveProductDocs.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection('sales_team')}
+                className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeSection === 'sales_team'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'hover:text-blue-900 hover:bg-blue-50 text-slate-700'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Daftar Sales ({salesTeam.length})</span>
               </button>
 
               <button
@@ -1361,7 +1605,9 @@ export default function App() {
       {/* Main Content View Container */}
       <main
         className={`${
-          activeSection === 'admin' ? 'max-w-7xl' : 'max-w-5xl'
+          activeSection === 'admin' || activeSection === 'sales_team'
+            ? 'max-w-7xl'
+            : 'max-w-5xl'
         } mx-auto px-4 sm:px-6 pt-5 space-y-5`}
       >
         {/* 1. DASHBOARD SALES VIEW - Khusus Role Sales (Hanya Melihat Data Sales yang Login) */}
@@ -1396,6 +1642,7 @@ export default function App() {
             onOpenVisitRecorder={() => handleOpenVisitRecorder()}
             onSignOut={handleSignOut}
             onClearAllSalesRecords={handleClearAllSalesRecords}
+            onNavigateSection={(sec) => setActiveSection(sec as ActiveSection)}
           />
         )}
 
@@ -1761,6 +2008,20 @@ export default function App() {
           <AdminAuditLogsView
             logs={adminAuditLogs}
             onClearLogs={handleClearAuditLogs}
+          />
+        )}
+
+        {/* 9. DAFTAR SALES PERSON VIEW - Khusus Role Admin */}
+        {userRole === 'admin' && activeSection === 'sales_team' && (
+          <SalesTeamManagementView
+            salesTeam={salesTeam}
+            visits={visits}
+            stores={stores}
+            availableAreas={areaList}
+            selectedDate={selectedDate}
+            onAddSalesPerson={handleAddSalesPerson}
+            onEditSalesPerson={handleEditSalesPerson}
+            onDeleteSalesPerson={handleDeleteSalesPerson}
           />
         )}
       </main>

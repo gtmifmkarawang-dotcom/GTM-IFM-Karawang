@@ -40,6 +40,10 @@ service cloud.firestore {
     match /AdminLogs/{logId} {
       allow read, write: if true;
     }
+
+    match /SalesPersons/{salesPersonId} {
+      allow read, write: if true;
+    }
   }
 }
 

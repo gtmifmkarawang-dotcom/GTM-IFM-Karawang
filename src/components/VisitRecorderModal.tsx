@@ -100,39 +100,54 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
         ? productCatalog
         : PRODUCT_SKU_CATALOG;
 
-    // Ensure all items have CTN and RCG units available (Box, Pack, and Pcs removed)
+    // Ensure CTN, RCG, and Pcs units are available with accurate pcsPerCtn & pcsPerRcg ratios
     return raw.map((sku) => {
       const units = sku.units.filter(
-        (u) => u.unit !== 'Box' && u.unit !== 'Pack' && u.unit !== 'Pcs'
+        (u) => u.unit !== 'Box' && u.unit !== 'Pack'
       );
-      const hasCtn = units.some((u) => u.unit === 'CTN' || u.unit === 'Karton');
-      const hasRcg = units.some((u) => u.unit === 'RCG');
+      const ctnUnit = units.find((u) => u.unit === 'CTN' || u.unit === 'Karton');
+      const rcgUnit = units.find((u) => u.unit === 'RCG');
+      const pcsUnit = units.find((u) => u.unit === 'Pcs');
 
-      const basePrice = units[0]?.priceIdr || 120000;
+      const pcsPerCtn = sku.pcsPerCtn || ctnUnit?.pcsPerUnit || 40;
+      const pcsPerRcg = sku.pcsPerRcg || rcgUnit?.pcsPerUnit || 10;
+
+      const basePrice = ctnUnit?.priceIdr || units[0]?.priceIdr || 120000;
       const baseCompanyPrice =
-        units[0]?.companyPriceIdr || basePrice;
+        ctnUnit?.companyPriceIdr || units[0]?.companyPriceIdr || basePrice;
 
-      if (!hasCtn) {
+      if (!ctnUnit) {
         units.unshift({
           unit: 'CTN',
           priceIdr: basePrice,
           companyPriceIdr: baseCompanyPrice,
           storePriceIdr: basePrice,
-          pcsPerUnit: 40,
+          pcsPerUnit: pcsPerCtn,
         });
       }
-      if (!hasRcg) {
+      if (!rcgUnit) {
         units.push({
           unit: 'RCG',
-          priceIdr: Math.round(basePrice / 8),
-          companyPriceIdr: Math.round(baseCompanyPrice / 8),
-          storePriceIdr: Math.round(basePrice / 8),
-          pcsPerUnit: 10,
+          priceIdr: Math.round((basePrice / pcsPerCtn) * pcsPerRcg),
+          companyPriceIdr: Math.round((baseCompanyPrice / pcsPerCtn) * pcsPerRcg),
+          storePriceIdr: Math.round((basePrice / pcsPerCtn) * pcsPerRcg),
+          pcsPerUnit: pcsPerRcg,
+        });
+      }
+      if (!pcsUnit) {
+        units.push({
+          unit: 'Pcs',
+          priceIdr: Math.round(basePrice / pcsPerCtn),
+          companyPriceIdr: Math.round(baseCompanyPrice / pcsPerCtn),
+          storePriceIdr: Math.round(basePrice / pcsPerCtn),
+          pcsPerUnit: 1,
         });
       }
 
       return {
         ...sku,
+        pcsPerCtn,
+        pcsPerRcg,
         units,
       };
     });
@@ -1280,8 +1295,10 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                       {filteredSkus.map((sku) => {
                         const line = orderLines[sku.id];
                         const qty = line?.quantity || 0;
-                        const selectedUnit =
-                          line?.unit === 'RCG' ? 'RCG' : 'CTN';
+                        const selectedUnit: OrderUnit =
+                          line?.unit === 'RCG' || line?.unit === 'Pcs'
+                            ? line.unit
+                            : 'CTN';
                         const unitObj =
                           sku.units.find(
                             (u) =>
@@ -1313,7 +1330,7 @@ export const VisitRecorderModal: React.FC<VisitRecorderModalProps> = ({
                                   {sku.name}
                                 </p>
                                 <p className="text-xs text-slate-500 font-mono">
-                                  {sku.skuCode} · {sku.category}
+                                  {sku.skuCode} · {sku.category} · 1 CTN = {sku.pcsPerCtn || 40} Pcs ({sku.pcsPerRcg || 10} Pcs/RCG)
                                 </p>
                               </div>
 

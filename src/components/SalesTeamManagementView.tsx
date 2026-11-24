@@ -29,9 +29,11 @@ import {
   X,
 } from 'lucide-react';
 import {
+  INDONESIAN_MONTHS,
   calculateDailyTargetFromMonthly,
   formatIdr,
   getEffectiveWorkingDaysInMonth,
+  getYearMonthKey,
 } from '../data/karawangData';
 import {
   PurchaseOrder,
@@ -71,7 +73,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
   const [editingPerson, setEditingPerson] = useState<SalesRepresentative | null>(null);
   const [deletingPerson, setDeletingPerson] = useState<SalesRepresentative | null>(null);
 
-  // Reference dates & Effective Working Days (Senin - Sabtu, Minggu Libur)
+  // Reference dates & Customizable Target Month/Year (Senin - Sabtu, Minggu Libur)
   const todayStr = useMemo(() => {
     if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
       return selectedDate;
@@ -79,15 +81,39 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
     return new Date().toISOString().split('T')[0];
   }, [selectedDate]);
 
-  const currentMonthPrefix = useMemo(() => {
-    return todayStr.slice(0, 7); // 'YYYY-MM'
+  const initialYear = useMemo(() => {
+    const y = Number(todayStr.slice(0, 4));
+    return !Number.isNaN(y) && y >= 2024 ? y : new Date().getFullYear();
   }, [todayStr]);
+
+  const initialMonth = useMemo(() => {
+    const m = Number(todayStr.slice(5, 7));
+    return !Number.isNaN(m) && m >= 1 && m <= 12 ? m : new Date().getMonth() + 1;
+  }, [todayStr]);
+
+  const [selectedTargetYear, setSelectedTargetYear] = useState<number>(initialYear);
+  const [selectedTargetMonth, setSelectedTargetMonth] = useState<number>(initialMonth);
+
+  const availableYears = useMemo(() => {
+    const currentY = new Date().getFullYear();
+    const minY = Math.min(2024, currentY - 1);
+    const maxY = Math.max(2030, currentY + 3);
+    const list: number[] = [];
+    for (let y = minY; y <= maxY; y++) list.push(y);
+    return list;
+  }, []);
+
+  const currentMonthPrefix = useMemo(() => {
+    return getYearMonthKey(selectedTargetYear, selectedTargetMonth); // 'YYYY-MM'
+  }, [selectedTargetYear, selectedTargetMonth]);
 
   const effectiveDaysInfo = useMemo(() => {
-    return getEffectiveWorkingDaysInMonth(todayStr);
-  }, [todayStr]);
+    return getEffectiveWorkingDaysInMonth(`${currentMonthPrefix}-01`);
+  }, [currentMonthPrefix]);
 
-  // Form State (Add / Edit) - Admin inputs Monthly Target, Daily Target is auto-calculated
+  // Form State (Add / Edit) - Admin inputs Monthly Target & Month/Year, Daily Target is auto-calculated
+  const [formTargetYear, setFormTargetYear] = useState<number>(initialYear);
+  const [formTargetMonth, setFormTargetMonth] = useState<number>(initialMonth);
   const [formName, setFormName] = useState('');
   const [formEmployeeCode, setFormEmployeeCode] = useState('');
   const [formEmail, setFormEmail] = useState('');
@@ -101,20 +127,30 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
   const [formIsActive, setFormIsActive] = useState<boolean>(true);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Auto-calculated Daily Target based on formula: Monthly Target / Effective Days (Senin-Sabtu)
+  const modalPeriodKey = useMemo(() => {
+    return getYearMonthKey(formTargetYear, formTargetMonth);
+  }, [formTargetYear, formTargetMonth]);
+
+  const modalEffectiveDaysInfo = useMemo(() => {
+    return getEffectiveWorkingDaysInMonth(`${modalPeriodKey}-01`);
+  }, [modalPeriodKey]);
+
+  // Auto-calculated Daily Target based on formula: Monthly Target / Effective Days (Senin-Sabtu) for selected Month & Year
   const formDailyOrderTargetIdr = useMemo(() => {
     return calculateDailyTargetFromMonthly(
       formMonthlyOrderTargetIdr,
-      effectiveDaysInfo.effectiveWorkingDays
+      modalEffectiveDaysInfo.effectiveWorkingDays
     );
-  }, [formMonthlyOrderTargetIdr, effectiveDaysInfo.effectiveWorkingDays]);
+  }, [formMonthlyOrderTargetIdr, modalEffectiveDaysInfo.effectiveWorkingDays]);
 
   const formMonthlyVisitTarget = useMemo(() => {
-    return (Number(formDailyVisitTarget) || 25) * effectiveDaysInfo.effectiveWorkingDays;
-  }, [formDailyVisitTarget, effectiveDaysInfo.effectiveWorkingDays]);
+    return (Number(formDailyVisitTarget) || 25) * modalEffectiveDaysInfo.effectiveWorkingDays;
+  }, [formDailyVisitTarget, modalEffectiveDaysInfo.effectiveWorkingDays]);
 
   // Open Add Modal
   const handleOpenAdd = () => {
+    setFormTargetYear(selectedTargetYear);
+    setFormTargetMonth(selectedTargetMonth);
     setFormName('');
     const nextNum = String(salesTeam.length + 18).padStart(3, '0');
     setFormEmployeeCode(`GTM-KRW-${nextNum}`);
@@ -134,6 +170,8 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
   // Open Edit Modal
   const handleOpenEdit = (person: SalesRepresentative) => {
     setEditingPerson(person);
+    setFormTargetYear(selectedTargetYear);
+    setFormTargetMonth(selectedTargetMonth);
     setFormName(person.name);
     setFormEmployeeCode(person.employeeCode || `GTM-KRW-${person.id.slice(-3)}`);
     setFormEmail(person.email);
@@ -142,7 +180,9 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
     setFormPhotoUrl(person.photoUrl || '');
     setFormRole(person.role || 'Sales Representative');
     setFormDailyVisitTarget(person.dailyVisitTarget || 25);
+    const activePeriodKey = getYearMonthKey(selectedTargetYear, selectedTargetMonth);
     const resolvedMonthly =
+      person.monthlyTargetsByPeriod?.[activePeriodKey] ||
       person.monthlyOrderTargetIdr ||
       (person.dailyOrderTargetIdr
         ? person.dailyOrderTargetIdr * effectiveDaysInfo.effectiveWorkingDays
@@ -151,6 +191,18 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
     setFormAssignedDistricts(person.assignedDistricts || []);
     setFormIsActive(person.isActive !== false);
     setFormError(null);
+  };
+
+  const handleModalPeriodChange = (nextYear: number, nextMonth: number) => {
+    setFormTargetYear(nextYear);
+    setFormTargetMonth(nextMonth);
+    if (editingPerson?.monthlyTargetsByPeriod) {
+      const nextKey = getYearMonthKey(nextYear, nextMonth);
+      const savedForPeriod = editingPerson.monthlyTargetsByPeriod[nextKey];
+      if (typeof savedForPeriod === 'number' && savedForPeriod > 0) {
+        setFormMonthlyOrderTargetIdr(savedForPeriod);
+      }
+    }
   };
 
   // Toggle district selection
@@ -180,6 +232,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
       return;
     }
 
+    const monthlyAmount = Number(formMonthlyOrderTargetIdr) || 60000000;
     const newPerson: SalesRepresentative = {
       id: `rep-krw-${Date.now().toString(36)}`,
       employeeCode: formEmployeeCode.trim() || `GTM-KRW-${Math.floor(100 + Math.random() * 900)}`,
@@ -193,7 +246,11 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
       dailyVisitTarget: Number(formDailyVisitTarget) || 25,
       dailyOrderTargetIdr: formDailyOrderTargetIdr,
       monthlyVisitTarget: formMonthlyVisitTarget,
-      monthlyOrderTargetIdr: Number(formMonthlyOrderTargetIdr) || 60000000,
+      monthlyOrderTargetIdr: monthlyAmount,
+      targetPeriod: modalPeriodKey,
+      monthlyTargetsByPeriod: {
+        [modalPeriodKey]: monthlyAmount,
+      },
       isActive: formIsActive,
       joinDate: new Date().toISOString().split('T')[0],
     };
@@ -221,6 +278,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
       return;
     }
 
+    const monthlyAmount = Number(formMonthlyOrderTargetIdr) || 60000000;
     const updated: SalesRepresentative = {
       ...editingPerson,
       name: formName.trim(),
@@ -234,7 +292,12 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
       dailyVisitTarget: Number(formDailyVisitTarget) || 25,
       dailyOrderTargetIdr: formDailyOrderTargetIdr,
       monthlyVisitTarget: formMonthlyVisitTarget,
-      monthlyOrderTargetIdr: Number(formMonthlyOrderTargetIdr) || 60000000,
+      monthlyOrderTargetIdr: monthlyAmount,
+      targetPeriod: modalPeriodKey,
+      monthlyTargetsByPeriod: {
+        ...(editingPerson.monthlyTargetsByPeriod || {}),
+        [modalPeriodKey]: monthlyAmount,
+      },
       isActive: formIsActive,
     };
 
@@ -329,8 +392,9 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
       return acc + (storeAmt - compAmt);
     }, 0);
 
-    // Targets: monthly target is primary, daily target is auto-calculated using effective working days (Senin - Sabtu)
+    // Targets: monthly target for selected Month/Year is primary, daily target is auto-calculated using effective working days (Senin - Sabtu)
     const monthlyOrderTargetIdr =
+      rep.monthlyTargetsByPeriod?.[currentMonthPrefix] ||
       rep.monthlyOrderTargetIdr ||
       (rep.dailyOrderTargetIdr
         ? rep.dailyOrderTargetIdr * effectiveDaysInfo.effectiveWorkingDays
@@ -341,7 +405,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
     );
     const dailyVisitTarget = rep.dailyVisitTarget || 25;
     const monthlyVisitTarget =
-      rep.monthlyVisitTarget || dailyVisitTarget * effectiveDaysInfo.effectiveWorkingDays;
+      dailyVisitTarget * effectiveDaysInfo.effectiveWorkingDays;
 
     const dailyVisitProgress = Math.min(Math.round((dailyVisitsCount / dailyVisitTarget) * 100), 100);
     const dailySalesProgress = Math.min(Math.round((dailySalesTotalIdr / dailyOrderTargetIdr) * 100), 100);
@@ -427,7 +491,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
       totalDailySelisih,
       totalMonthlySelisih,
     };
-  }, [salesTeam, visits, todayStr, currentMonthPrefix]);
+  }, [salesTeam, visits, todayStr, currentMonthPrefix, effectiveDaysInfo.effectiveWorkingDays]);
 
   return (
     <div className="space-y-6">
@@ -549,8 +613,57 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter, Periode Target (Bulan & Tahun) & Search Bar */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs space-y-3">
+        {/* Periode Target Sales (Custom Bulan & Tahun) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-900">
+                Periode Target & Performa Bulanan
+              </p>
+              <p className="text-[11px] text-slate-500">
+                {effectiveDaysInfo.monthName} ·{' '}
+                <strong className="text-indigo-700">
+                  {effectiveDaysInfo.effectiveWorkingDays} Hari Efektif
+                </strong>{' '}
+                (Senin–Sabtu, {effectiveDaysInfo.sundaysCount} hari Minggu libur)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              aria-label="Pilih Bulan Target Sales"
+              value={selectedTargetMonth}
+              onChange={(e) => setSelectedTargetMonth(Number(e.target.value))}
+              className="min-h-[38px] px-3 py-1.5 text-xs font-bold bg-indigo-50/70 border border-indigo-200 rounded-xl focus:outline-none focus:border-blue-700 text-indigo-950 cursor-pointer"
+            >
+              {INDONESIAN_MONTHS.map((m) => (
+                <option key={`filter-month-${m.value}`} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Pilih Tahun Target Sales"
+              value={selectedTargetYear}
+              onChange={(e) => setSelectedTargetYear(Number(e.target.value))}
+              className="min-h-[38px] px-3 py-1.5 text-xs font-bold font-mono bg-indigo-50/70 border border-indigo-200 rounded-xl focus:outline-none focus:border-blue-700 text-indigo-950 cursor-pointer"
+            >
+              {availableYears.map((yr) => (
+                <option key={`filter-year-${yr}`} value={yr}>
+                  {yr}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div className="md:col-span-6 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -842,7 +955,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                       <div className="flex items-center gap-1.5">
                         <Building2 className="w-4 h-4 text-indigo-700" />
                         <span className="text-xs font-bold text-slate-900">
-                          Performa Bulan Ini ({currentMonthPrefix})
+                          Performa Bulan ({effectiveDaysInfo.monthName})
                         </span>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-900">
@@ -1054,7 +1167,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                 </p>
               </div>
 
-              {/* Target Kunjungan & Target Sales (Role Admin: Input Target Bulanan -> Harian Terisi Otomatis) */}
+              {/* Target Kunjungan & Target Sales (Role Admin: Pilih Bulan/Tahun & Input Target Bulanan -> Harian Terisi Otomatis) */}
               <div className="p-4 bg-gradient-to-br from-blue-50/90 to-indigo-50/70 border border-blue-200 rounded-2xl space-y-3.5">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <p className="font-bold text-blue-950 flex items-center gap-1.5 text-xs">
@@ -1062,8 +1175,48 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                     <span>Target Sales & Kunjungan Sales Person</span>
                   </p>
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                    {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({effectiveDaysInfo.monthName})
+                    {modalEffectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({modalEffectiveDaysInfo.monthName})
                   </span>
+                </div>
+
+                {/* Pilih Bulan & Tahun Target Sales */}
+                <div className="grid grid-cols-2 gap-3 bg-white/80 p-3 rounded-xl border border-blue-200/80">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Bulan Target *
+                    </label>
+                    <select
+                      value={formTargetMonth}
+                      onChange={(e) =>
+                        handleModalPeriodChange(formTargetYear, Number(e.target.value))
+                      }
+                      className="w-full min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-700 cursor-pointer"
+                    >
+                      {INDONESIAN_MONTHS.map((m) => (
+                        <option key={`add-month-${m.value}`} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Tahun Target *
+                    </label>
+                    <select
+                      value={formTargetYear}
+                      onChange={(e) =>
+                        handleModalPeriodChange(Number(e.target.value), formTargetMonth)
+                      }
+                      className="w-full min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold font-mono text-slate-900 focus:outline-none focus:border-blue-700 cursor-pointer"
+                    >
+                      {availableYears.map((yr) => (
+                        <option key={`add-year-${yr}`} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -1160,7 +1313,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                       </div>
                     </div>
                     <p className="text-[10px] text-slate-600 mt-2 leading-relaxed bg-blue-50/70 p-1.5 rounded-lg border border-blue-100">
-                      💡 <strong>Rumus:</strong> Target Bulanan ({formatIdr(formMonthlyOrderTargetIdr)}) ÷ {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({effectiveDaysInfo.monthName}, Senin–Sabtu) = <strong>{formatIdr(formDailyOrderTargetIdr)} / Hari</strong>.
+                      💡 <strong>Rumus:</strong> Target Bulanan ({formatIdr(formMonthlyOrderTargetIdr)}) ÷ {modalEffectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({modalEffectiveDaysInfo.monthName}, Senin–Sabtu) = <strong>{formatIdr(formDailyOrderTargetIdr)} / Hari</strong>.
                     </p>
                   </div>
                 </div>
@@ -1185,7 +1338,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                   <div>
                     <label className="block text-slate-700 font-bold mb-1 text-xs flex items-center justify-between">
                       <span>Target Kunjungan Bulanan</span>
-                      <span className="text-[10px] text-emerald-700 font-bold">Otomatis ({formDailyVisitTarget} × {effectiveDaysInfo.effectiveWorkingDays} hari)</span>
+                      <span className="text-[10px] text-emerald-700 font-bold">Otomatis ({formDailyVisitTarget} × {modalEffectiveDaysInfo.effectiveWorkingDays} hari)</span>
                     </label>
                     <div className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-slate-100/90 border border-slate-200 flex items-center justify-between text-xs font-mono font-bold text-slate-800">
                       <span>{formMonthlyVisitTarget} Toko / Bulan</span>
@@ -1376,7 +1529,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                 />
               </div>
 
-              {/* Target Kunjungan & Target Sales (Role Admin: Input Target Bulanan -> Harian Terisi Otomatis) */}
+              {/* Target Kunjungan & Target Sales (Role Admin: Pilih Bulan/Tahun & Input Target Bulanan -> Harian Terisi Otomatis) */}
               <div className="p-4 bg-gradient-to-br from-blue-50/90 to-indigo-50/70 border border-blue-200 rounded-2xl space-y-3.5">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <p className="font-bold text-blue-950 flex items-center gap-1.5 text-xs">
@@ -1384,8 +1537,48 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                     <span>Target Sales & Kunjungan Sales Person</span>
                   </p>
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                    {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({effectiveDaysInfo.monthName})
+                    {modalEffectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({modalEffectiveDaysInfo.monthName})
                   </span>
+                </div>
+
+                {/* Pilih Bulan & Tahun Target Sales */}
+                <div className="grid grid-cols-2 gap-3 bg-white/80 p-3 rounded-xl border border-blue-200/80">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Bulan Target *
+                    </label>
+                    <select
+                      value={formTargetMonth}
+                      onChange={(e) =>
+                        handleModalPeriodChange(formTargetYear, Number(e.target.value))
+                      }
+                      className="w-full min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-700 cursor-pointer"
+                    >
+                      {INDONESIAN_MONTHS.map((m) => (
+                        <option key={`edit-month-${m.value}`} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Tahun Target *
+                    </label>
+                    <select
+                      value={formTargetYear}
+                      onChange={(e) =>
+                        handleModalPeriodChange(Number(e.target.value), formTargetMonth)
+                      }
+                      className="w-full min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold font-mono text-slate-900 focus:outline-none focus:border-blue-700 cursor-pointer"
+                    >
+                      {availableYears.map((yr) => (
+                        <option key={`edit-year-${yr}`} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -1482,7 +1675,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                       </div>
                     </div>
                     <p className="text-[10px] text-slate-600 mt-2 leading-relaxed bg-blue-50/70 p-1.5 rounded-lg border border-blue-100">
-                      💡 <strong>Rumus:</strong> Target Bulanan ({formatIdr(formMonthlyOrderTargetIdr)}) ÷ {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({effectiveDaysInfo.monthName}, Senin–Sabtu) = <strong>{formatIdr(formDailyOrderTargetIdr)} / Hari</strong>.
+                      💡 <strong>Rumus:</strong> Target Bulanan ({formatIdr(formMonthlyOrderTargetIdr)}) ÷ {modalEffectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({modalEffectiveDaysInfo.monthName}, Senin–Sabtu) = <strong>{formatIdr(formDailyOrderTargetIdr)} / Hari</strong>.
                     </p>
                   </div>
                 </div>
@@ -1507,7 +1700,7 @@ export const SalesTeamManagementView: React.FC<SalesTeamManagementViewProps> = (
                   <div>
                     <label className="block text-slate-700 font-bold mb-1 text-xs flex items-center justify-between">
                       <span>Target Kunjungan Bulanan</span>
-                      <span className="text-[10px] text-emerald-700 font-bold">Otomatis ({formDailyVisitTarget} × {effectiveDaysInfo.effectiveWorkingDays} hari)</span>
+                      <span className="text-[10px] text-emerald-700 font-bold">Otomatis ({formDailyVisitTarget} × {modalEffectiveDaysInfo.effectiveWorkingDays} hari)</span>
                     </label>
                     <div className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-slate-100/90 border border-slate-200 flex items-center justify-between text-xs font-mono font-bold text-slate-800">
                       <span>{formMonthlyVisitTarget} Toko / Bulan</span>

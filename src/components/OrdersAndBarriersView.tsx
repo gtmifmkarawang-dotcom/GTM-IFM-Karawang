@@ -49,6 +49,9 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
   const [selectedOrderVisit, setSelectedOrderVisit] = useState<StoreVisit | null>(
     null
   );
+  const [pendingDeleteVisit, setPendingDeleteVisit] = useState<StoreVisit | null>(
+    null
+  );
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   const orderVisits = useMemo(
@@ -296,15 +299,7 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (
-                            window.confirm(
-                              `Apakah Anda yakin ingin menghapus pesanan ${
-                                visit.purchaseOrder?.poNumber || ''
-                              } (${visit.storeName})?`
-                            )
-                          ) {
-                            onDeleteOrder(visit.id);
-                          }
+                          setPendingDeleteVisit(visit);
                         }}
                         className="min-h-[40px] px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-bold transition-all shadow-2xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
                         title="Hapus pesanan ini (Kewenangan Admin)"
@@ -624,16 +619,7 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          if (
-                            window.confirm(
-                              `Apakah Anda yakin ingin menghapus pesanan ${
-                                selectedOrderVisit.purchaseOrder?.poNumber || ''
-                              } (${selectedOrderVisit.storeName})?`
-                            )
-                          ) {
-                            onDeleteOrder(selectedOrderVisit.id);
-                            setSelectedOrderVisit(null);
-                          }
+                          setPendingDeleteVisit(selectedOrderVisit);
                         }}
                         className="min-h-[42px] px-3.5 py-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-2xs"
                       >
@@ -663,6 +649,66 @@ export const OrdersAndBarriersView: React.FC<OrdersAndBarriersViewProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Konfirmasi Hapus Pesanan */}
+        {pendingDeleteVisit && onDeleteOrder && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4">
+            <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Konfirmasi Hapus Pesanan
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Apakah Anda yakin ingin menghapus pesanan{' '}
+                    <span className="font-mono font-bold text-slate-900">
+                      {pendingDeleteVisit.purchaseOrder?.poNumber || '-'}
+                    </span>{' '}
+                    dari toko{' '}
+                    <span className="font-bold text-slate-900">
+                      {pendingDeleteVisit.storeName}
+                    </span>{' '}
+                    senilai{' '}
+                    <span className="font-mono font-bold text-rose-700">
+                      {formatIdr(pendingDeleteVisit.purchaseOrder?.netAmountIdr || 0)}
+                    </span>
+                    ?
+                  </p>
+                  <p className="text-[11px] text-rose-600 mt-1.5 font-medium">
+                    Data pesanan akan dihapus permanen dari daftar dan database Firestore.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPendingDeleteVisit(null)}
+                  className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteOrder(pendingDeleteVisit.id);
+                    if (selectedOrderVisit?.id === pendingDeleteVisit.id) {
+                      setSelectedOrderVisit(null);
+                    }
+                    setPendingDeleteVisit(null);
+                  }}
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Ya, Hapus Pesanan</span>
+                </button>
               </div>
             </div>
           </div>

@@ -26,10 +26,12 @@ import {
   Users,
 } from 'lucide-react';
 import {
+  INDONESIAN_MONTHS,
   calculateDailyTargetFromMonthly,
   extractNameFromEmail,
   formatIdr,
   getEffectiveWorkingDaysInMonth,
+  getYearMonthKey,
 } from '../data/karawangData';
 import {
   PlannedRouteStop,
@@ -97,7 +99,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
   const quoteText =
     'Bekerja dengan hati melahirkan prestasi, bekerja dengan ikhlas membawa keberkahan';
 
-  // Resolusi Tanggal & Prefix Bulan Ini
+  // Resolusi Tanggal & Periode Bulan/Tahun Target (dapat dipilih/customize)
   const todayDateStr = useMemo(() => {
     if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
       return selectedDate;
@@ -105,26 +107,77 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
     return now.toISOString().split('T')[0];
   }, [selectedDate]);
 
-  const currentMonthPrefix = useMemo(() => {
-    return todayDateStr.slice(0, 7); // 'YYYY-MM'
+  const initialTargetYear = useMemo(() => {
+    const y = Number(todayDateStr.slice(0, 4));
+    return !Number.isNaN(y) && y >= 2024 ? y : now.getFullYear();
   }, [todayDateStr]);
 
-  // Perhitungan Hari Efektif Kerja Bulan Ini (Senin - Sabtu, Minggu Libur)
+  const initialTargetMonth = useMemo(() => {
+    const m = Number(todayDateStr.slice(5, 7));
+    return !Number.isNaN(m) && m >= 1 && m <= 12 ? m : now.getMonth() + 1;
+  }, [todayDateStr]);
+
+  const [selectedTargetYear, setSelectedTargetYear] = useState<number>(initialTargetYear);
+  const [selectedTargetMonth, setSelectedTargetMonth] = useState<number>(initialTargetMonth);
+
+  const availableYears = useMemo(() => {
+    const currentY = new Date().getFullYear();
+    const minY = Math.min(2024, currentY - 1);
+    const maxY = Math.max(2030, currentY + 3);
+    const list: number[] = [];
+    for (let y = minY; y <= maxY; y++) list.push(y);
+    return list;
+  }, []);
+
+  const currentMonthPrefix = useMemo(() => {
+    return getYearMonthKey(selectedTargetYear, selectedTargetMonth); // 'YYYY-MM'
+  }, [selectedTargetYear, selectedTargetMonth]);
+
+  // Perhitungan Hari Efektif Kerja Bulan Terpilih (Senin - Sabtu, Minggu Libur)
   const effectiveDaysInfo = useMemo(() => {
+    return getEffectiveWorkingDaysInMonth(`${currentMonthPrefix}-01`);
+  }, [currentMonthPrefix]);
+
+  const todayEffectiveDaysInfo = useMemo(() => {
     return getEffectiveWorkingDaysInMonth(todayDateStr);
   }, [todayDateStr]);
 
   // Target Bulanan & Target Harian (terisi otomatis dari rumus target bulanan / hari efektif)
   const monthlyOrderTargetIdr = useMemo(() => {
     return (
+      salesRep.monthlyTargetsByPeriod?.[currentMonthPrefix] ||
       salesRep.monthlyOrderTargetIdr ||
       (salesRep.dailyOrderTargetIdr
         ? salesRep.dailyOrderTargetIdr * effectiveDaysInfo.effectiveWorkingDays
         : 60000000)
     );
-  }, [salesRep.monthlyOrderTargetIdr, salesRep.dailyOrderTargetIdr, effectiveDaysInfo.effectiveWorkingDays]);
+  }, [
+    salesRep.monthlyTargetsByPeriod,
+    currentMonthPrefix,
+    salesRep.monthlyOrderTargetIdr,
+    salesRep.dailyOrderTargetIdr,
+    effectiveDaysInfo.effectiveWorkingDays,
+  ]);
 
   const dailyOrderTargetIdr = useMemo(() => {
+    const todayPrefix = todayDateStr.slice(0, 7);
+    const baseMonthlyForToday =
+      salesRep.monthlyTargetsByPeriod?.[todayPrefix] ||
+      salesRep.monthlyOrderTargetIdr ||
+      monthlyOrderTargetIdr;
+    return calculateDailyTargetFromMonthly(
+      baseMonthlyForToday,
+      todayEffectiveDaysInfo.effectiveWorkingDays
+    );
+  }, [
+    todayDateStr,
+    salesRep.monthlyTargetsByPeriod,
+    salesRep.monthlyOrderTargetIdr,
+    monthlyOrderTargetIdr,
+    todayEffectiveDaysInfo.effectiveWorkingDays,
+  ]);
+
+  const periodDailyOrderTargetIdr = useMemo(() => {
     return calculateDailyTargetFromMonthly(
       monthlyOrderTargetIdr,
       effectiveDaysInfo.effectiveWorkingDays
@@ -132,9 +185,9 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
   }, [monthlyOrderTargetIdr, effectiveDaysInfo.effectiveWorkingDays]);
 
   const dailyVisitTarget = salesRep.dailyVisitTarget || 25;
-  const monthlyVisitTarget = salesRep.monthlyVisitTarget || dailyVisitTarget * effectiveDaysInfo.effectiveWorkingDays;
+  const monthlyVisitTarget = dailyVisitTarget * effectiveDaysInfo.effectiveWorkingDays;
 
-  // Filter kunjungan Hari Ini vs Bulan Ini (sudah diisolasi untuk akun sales yang aktif)
+  // Filter kunjungan Hari Ini vs Bulan Terpilih (sudah diisolasi untuk akun sales yang aktif)
   const todayVisits = useMemo(() => {
     return visits.filter((v) => v.date === todayDateStr);
   }, [visits, todayDateStr]);
@@ -249,7 +302,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
               <span>{autoDateIndonesian}</span>
               <span className="w-1 h-1 rounded-full bg-amber-400" />
               <span className="text-amber-300 font-mono">
-                {effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif Bulan Ini
+                {todayEffectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif ({todayEffectiveDaysInfo.monthName})
               </span>
             </div>
 
@@ -304,7 +357,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
       {/* PUSAT PEMANTAUAN TARGET & PERFORMA SALES (HARIAN & BULANAN)                 */}
       {/* ========================================================================= */}
       <div className="rounded-3xl bg-white border border-blue-100 shadow-sm p-5 sm:p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
@@ -315,36 +368,72 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
               </h2>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Pantau realisasi sales harian dan performa akumulasi bulanan terhadap target PT IFM
+              Pantau realisasi sales harian dan performa bulanan ({effectiveDaysInfo.monthName}) terhadap target PT IFM
             </p>
           </div>
 
-          {/* Toggle Switch: Hari Ini vs Bulan Ini */}
-          <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
-            <button
-              type="button"
-              onClick={() => setActivePerformanceTab('HARI_INI')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                activePerformanceTab === 'HARI_INI'
-                  ? 'bg-blue-700 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Target Hari Ini</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActivePerformanceTab('BULAN_INI')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                activePerformanceTab === 'BULAN_INI'
-                  ? 'bg-blue-700 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Target Bulan Ini (MTD)</span>
-            </button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {/* Pilih Bulan & Tahun Target Sales */}
+            <div className="flex items-center gap-1.5 bg-indigo-50/70 p-1 rounded-xl border border-indigo-200">
+              <select
+                aria-label="Pilih Bulan Target"
+                value={selectedTargetMonth}
+                onChange={(e) => {
+                  setSelectedTargetMonth(Number(e.target.value));
+                  setActivePerformanceTab('BULAN_INI');
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-100 text-xs font-bold text-indigo-950 focus:outline-none focus:border-blue-700 cursor-pointer"
+              >
+                {INDONESIAN_MONTHS.map((m) => (
+                  <option key={`sales-month-${m.value}`} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Pilih Tahun Target"
+                value={selectedTargetYear}
+                onChange={(e) => {
+                  setSelectedTargetYear(Number(e.target.value));
+                  setActivePerformanceTab('BULAN_INI');
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-100 text-xs font-bold font-mono text-indigo-950 focus:outline-none focus:border-blue-700 cursor-pointer"
+              >
+                {availableYears.map((yr) => (
+                  <option key={`sales-year-${yr}`} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Toggle Switch: Hari Ini vs Bulan Terpilih */}
+            <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
+              <button
+                type="button"
+                onClick={() => setActivePerformanceTab('HARI_INI')}
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activePerformanceTab === 'HARI_INI'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Target Hari Ini</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePerformanceTab('BULAN_INI')}
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activePerformanceTab === 'BULAN_INI'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Target Bulanan</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -470,7 +559,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
                 <h3 className="text-sm font-bold text-slate-900">
-                  Target & Performa Bulan Ini ({effectiveDaysInfo.monthName})
+                  Target & Performa ({effectiveDaysInfo.monthName})
                 </h3>
               </div>
               <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200">
@@ -538,10 +627,13 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
               </div>
 
               {/* Info Hari Efektif & Selisih Bulanan */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="text-slate-600 flex items-center gap-1">
                   <Info className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>{effectiveDaysInfo.effectiveWorkingDays} Hari Kerja Efektif (Senin–Sabtu)</span>
+                  <span>
+                    {effectiveDaysInfo.effectiveWorkingDays} Hari Efektif (Senin–Sabtu) · Target Harian:{' '}
+                    <strong className="font-mono text-indigo-900">{formatIdr(periodDailyOrderTargetIdr)}</strong>
+                  </span>
                 </span>
                 <span
                   className={`font-mono font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1 ${
@@ -569,7 +661,7 @@ export const SalesDashboardView: React.FC<SalesDashboardViewProps> = ({
         <div className="pt-2">
           <div className="flex items-center justify-between pb-3">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Rincian Keuangan Realisasi ({activePerformanceTab === 'HARI_INI' ? 'Hari Ini' : 'Bulan Ini'})
+              Rincian Keuangan Realisasi ({activePerformanceTab === 'HARI_INI' ? 'Hari Ini' : effectiveDaysInfo.monthName})
             </span>
             <span className="text-[11px] font-mono font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded">
               Target: {formatIdr(activeTargetSales)}

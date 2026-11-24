@@ -78,6 +78,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onNavigateSection,
 }) => {
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [pendingDeleteVisit, setPendingDeleteVisit] = useState<StoreVisit | null>(null);
+  const [isConfirmClearOpen, setIsConfirmClearOpen] = useState<boolean>(false);
   const availableAreas = useMemo(() => {
     return areaList && areaList.length > 0 ? areaList : KARAWANG_DISTRICTS;
   }, [areaList]);
@@ -725,15 +727,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             {onClearAllSalesRecords && visits.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      'Apakah Anda yakin ingin menghapus semua record sales (kunjungan & pesanan)?'
-                    )
-                  ) {
-                    onClearAllSalesRecords();
-                  }
-                }}
+                onClick={() => setIsConfirmClearOpen(true)}
                 className="px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
                 title="Hapus semua record sales"
               >
@@ -850,15 +844,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                           {onDeleteOrder && (
                             <button
                               type="button"
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Apakah Anda yakin ingin menghapus pesanan ${po.poNumber} (${visit.storeName})?`
-                                  )
-                                ) {
-                                  onDeleteOrder(po.id || visit.id);
-                                }
-                              }}
+                              onClick={() => setPendingDeleteVisit(visit)}
                               className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
                               title="Hapus Pesanan (Admin)"
                             >
@@ -882,6 +868,96 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         onClose={() => setIsExportModalOpen(false)}
         visits={visits}
       />
+
+      {/* Modal Konfirmasi Hapus Satu Pesanan */}
+      {pendingDeleteVisit && onDeleteOrder && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Konfirmasi Hapus Pesanan
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Apakah Anda yakin ingin menghapus pesanan{' '}
+                  <span className="font-mono font-bold text-slate-900">
+                    {pendingDeleteVisit.purchaseOrder?.poNumber || '-'}
+                  </span>{' '}
+                  dari toko{' '}
+                  <span className="font-bold text-slate-900">
+                    {pendingDeleteVisit.storeName}
+                  </span>
+                  ?
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteVisit(null)}
+                className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteOrder(pendingDeleteVisit.id);
+                  setPendingDeleteVisit(null);
+                }}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus Pesanan</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Reset Semua Record Sales */}
+      {isConfirmClearOpen && onClearAllSalesRecords && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Reset Semua Record Sales?
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Apakah Anda yakin ingin menghapus seluruh record kunjungan &amp; pesanan sales? Tindakan ini tidak dapat dibatalkan.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsConfirmClearOpen(false)}
+                className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClearAllSalesRecords();
+                  setIsConfirmClearOpen(false);
+                }}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Reset Semua</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

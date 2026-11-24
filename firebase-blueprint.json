@@ -32,6 +32,14 @@
           "type": "number",
           "description": "Company price per Pcs (satuan)."
         },
+        "pcs_per_ctn": {
+          "type": "number",
+          "description": "Number of Pcs contained in 1 CTN (karton)."
+        },
+        "pcs_per_rcg": {
+          "type": "number",
+          "description": "Number of Pcs contained in 1 RCG (renceng)."
+        },
         "unit": {
           "type": "string",
           "description": "Product unit of measure."

@@ -216,63 +216,75 @@ function mapFirestoreProductDocsToCatalog(
       storePrice = Math.round((companyPrice * 1.065) / 500) * 500;
     }
 
-    // 1b. HARGA PERUSAHAAN RCG & PCS DARI FIRESTORE
-    let companyPriceRcg = 0;
-    const rcgCandidates = [
+    const parseNumericField = (candidates: string[]): number => {
+      for (const key of candidates) {
+        const val = d[key];
+        if (typeof val === 'number' && !Number.isNaN(val) && val > 0) {
+          return val;
+        }
+        if (typeof val === 'string' && val.trim()) {
+          const num = Number(val.replace(/[^0-9.-]+/g, ''));
+          if (!Number.isNaN(num) && num > 0) {
+            return num;
+          }
+        }
+      }
+      return 0;
+    };
+
+    const pcsPerCtn =
+      Math.round(
+        parseNumericField([
+          'pcs_per_ctn',
+          'pcsPerCtn',
+          'isi_ctn',
+          'qty_per_ctn',
+          'isi_karton',
+        ])
+      ) || 40;
+    const pcsPerRcg =
+      Math.round(
+        parseNumericField([
+          'pcs_per_rcg',
+          'pcsPerRcg',
+          'isi_rcg',
+          'qty_per_rcg',
+          'isi_renceng',
+        ])
+      ) || 10;
+
+    // 1b. HARGA PERUSAHAAN RCG & PCS DARI FIRESTORE (proporsional terhadap pcsPerCtn & pcsPerRcg)
+    let companyPricePcs = parseNumericField([
+      'harga_perusahaan_pcs',
+      'harga_pcs',
+      'hargaPcs',
+      'companyPricePcs',
+    ]);
+    if (!companyPricePcs || companyPricePcs <= 0) {
+      companyPricePcs = Math.round(companyPrice / pcsPerCtn);
+    }
+
+    let companyPriceRcg = parseNumericField([
       'harga_perusahaan_rcg',
       'harga_rcg',
       'hargaRcg',
       'companyPriceRcg',
       'harga_renceng',
-    ];
-    for (const key of rcgCandidates) {
-      const val = d[key];
-      if (typeof val === 'number' && !Number.isNaN(val) && val > 0) {
-        companyPriceRcg = val;
-        break;
-      }
-      if (typeof val === 'string' && val.trim()) {
-        const num = Number(val.replace(/[^0-9.-]+/g, ''));
-        if (!Number.isNaN(num) && num > 0) {
-          companyPriceRcg = num;
-          break;
-        }
-      }
-    }
+    ]);
     if (!companyPriceRcg || companyPriceRcg <= 0) {
-      companyPriceRcg = Math.round(companyPrice / 8);
+      companyPriceRcg = Math.round((companyPrice / pcsPerCtn) * pcsPerRcg);
     }
 
-    let companyPricePcs = 0;
-    const pcsCandidates = [
-      'harga_perusahaan_pcs',
-      'harga_pcs',
-      'hargaPcs',
-      'companyPricePcs',
-    ];
-    for (const key of pcsCandidates) {
-      const val = d[key];
-      if (typeof val === 'number' && !Number.isNaN(val) && val > 0) {
-        companyPricePcs = val;
-        break;
-      }
-      if (typeof val === 'string' && val.trim()) {
-        const num = Number(val.replace(/[^0-9.-]+/g, ''));
-        if (!Number.isNaN(num) && num > 0) {
-          companyPricePcs = num;
-          break;
-        }
-      }
-    }
-    if (!companyPricePcs || companyPricePcs <= 0) {
-      companyPricePcs = Math.round(companyPrice / 40);
-    }
+    const storePricePcs = Math.round(storePrice / pcsPerCtn);
+    const storePriceRcg = Math.round((storePrice / pcsPerCtn) * pcsPerRcg);
 
     return {
       id: docItem.id,
       skuCode,
       name,
       category,
+      pcsPerCtn,
+      pcsPerRcg,
       defaultUnit: 'CTN' as OrderUnit,
       units: [
         {
@@ -280,20 +292,20 @@ function mapFirestoreProductDocsToCatalog(
           priceIdr: storePrice,
           companyPriceIdr: companyPrice, // HARGA PERUSAHAAN CTN DARI FIRESTORE
           storePriceIdr: storePrice,
-          pcsPerUnit: 40,
+          pcsPerUnit: pcsPerCtn,
         },
         {
           unit: 'RCG',
-          priceIdr: Math.round(storePrice / 8),
+          priceIdr: storePriceRcg,
           companyPriceIdr: companyPriceRcg, // HARGA PERUSAHAAN RCG DARI FIRESTORE
-          storePriceIdr: Math.round(storePrice / 8),
-          pcsPerUnit: 10,
+          storePriceIdr: storePriceRcg,
+          pcsPerUnit: pcsPerRcg,
         },
         {
           unit: 'Pcs',
-          priceIdr: Math.round(storePrice / 40),
+          priceIdr: storePricePcs,
           companyPriceIdr: companyPricePcs, // HARGA PERUSAHAAN PCS DARI FIRESTORE
-          storePriceIdr: Math.round(storePrice / 40),
+          storePriceIdr: storePricePcs,
           pcsPerUnit: 1,
         },
         {
@@ -301,7 +313,7 @@ function mapFirestoreProductDocsToCatalog(
           priceIdr: storePrice,
           companyPriceIdr: companyPrice,
           storePriceIdr: storePrice,
-          pcsPerUnit: 40,
+          pcsPerUnit: pcsPerCtn,
         },
       ],
       stockAvailable: true,
@@ -342,9 +354,9 @@ const STORES_STORAGE_KEY = 'sales_gtm_stores_cache_v2';
 function getStoredVisits(): StoreVisit[] {
   try {
     const raw = localStorage.getItem(VISITS_STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
@@ -357,9 +369,9 @@ function getStoredVisits(): StoreVisit[] {
 function getStoredStores(): Store[] {
   try {
     const raw = localStorage.getItem(STORES_STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         const idSet = new Set<string>();
         const valid: Store[] = [];
         parsed.forEach((s, idx) => {
@@ -782,6 +794,11 @@ export default function App() {
             dailyOrderTargetIdr: Number(data.dailyOrderTargetIdr) || 2400000,
             monthlyVisitTarget: Number(data.monthlyVisitTarget) || 625,
             monthlyOrderTargetIdr: Number(data.monthlyOrderTargetIdr) || 60000000,
+            targetPeriod: typeof data.targetPeriod === 'string' ? data.targetPeriod : undefined,
+            monthlyTargetsByPeriod:
+              data.monthlyTargetsByPeriod && typeof data.monthlyTargetsByPeriod === 'object'
+                ? (data.monthlyTargetsByPeriod as Record<string, number>)
+                : undefined,
             isActive: data.isActive !== false,
             joinDate: typeof data.joinDate === 'string' ? data.joinDate : '',
           };
@@ -907,7 +924,7 @@ export default function App() {
       effectiveCallPct,
       totalRevenueIdr,
     };
-  }, [visitsForDate, salesRep.dailyVisitTarget]);
+  }, [visitsForDate, activeSalesRep.dailyVisitTarget]);
 
   const displayedVisits = useMemo(() => {
     return visitsForDate.filter((v) => {
@@ -1027,12 +1044,49 @@ export default function App() {
     }
   };
 
-  const handleDeleteStore = (storeId: string) => {
-    const targetStore = stores.find((s) => s.id === storeId);
-    setStores((prev) => prev.filter((s) => s.id !== storeId));
-    deleteDoc(doc(db, 'Stores', storeId)).catch((err) =>
-      console.warn('Firestore store delete notice:', err)
+  const handleDeleteStore = async (storeId: string) => {
+    const targetStore = stores.find(
+      (s) => s.id === storeId || s.storeCode === storeId
     );
+    const resolvedId = targetStore?.id || storeId;
+    const resolvedCode = targetStore?.storeCode;
+
+    setStores((prev) =>
+      prev.filter((s) => s.id !== storeId && s.id !== resolvedId)
+    );
+    setRouteStops((prev) =>
+      prev.filter((stop) => stop.storeId !== storeId && stop.storeId !== resolvedId)
+    );
+
+    try {
+      await deleteDoc(doc(db, 'Stores', resolvedId));
+      if (storeId !== resolvedId) {
+        await deleteDoc(doc(db, 'Stores', storeId));
+      }
+    } catch (err) {
+      console.warn('Firestore store delete notice:', err);
+    }
+
+    // Pastikan dokumen dengan auto-ID di Firestore collection Stores juga ikut terhapus
+    try {
+      const snap = await getDocs(collection(db, 'Stores'));
+      const deletions = snap.docs
+        .filter((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return (
+            d.id === storeId ||
+            d.id === resolvedId ||
+            data.id === storeId ||
+            data.id === resolvedId ||
+            (resolvedCode && data.storeCode === resolvedCode)
+          );
+        })
+        .map((d) => deleteDoc(d.ref));
+      await Promise.all(deletions);
+    } catch (err) {
+      console.warn('Firestore store scan delete notice:', err);
+    }
+
     if (userRole === 'admin') {
       logAdminAction(
         'HAPUS_TOKO',
@@ -1042,7 +1096,7 @@ export default function App() {
     }
   };
 
-  // Kewenangan Admin: Menghapus pesanan tertentu
+  // Kewenangan Admin: Menghapus pesanan / kunjungan tertentu
   const handleDeleteOrder = (orderOrVisitId: string) => {
     const targetVisit = visits.find(
       (v) =>
@@ -1050,26 +1104,78 @@ export default function App() {
         v.purchaseOrder?.id === orderOrVisitId ||
         v.purchaseOrder?.poNumber === orderOrVisitId
     );
+    const resolvedVisitId = targetVisit?.id || orderOrVisitId;
+    const resolvedPoId = targetVisit?.purchaseOrder?.id;
+    const resolvedPoNumber = targetVisit?.purchaseOrder?.poNumber;
 
     setVisits((prev) =>
       prev.filter(
         (v) =>
           v.id !== orderOrVisitId &&
+          v.id !== resolvedVisitId &&
           v.purchaseOrder?.id !== orderOrVisitId &&
           v.purchaseOrder?.poNumber !== orderOrVisitId
       )
     );
-    // Hapus dari Firestore
-    deleteDoc(doc(db, 'Visits', orderOrVisitId)).catch((err) =>
-      console.warn('Firestore delete notice:', err)
+
+    setRouteStops((prev) =>
+      prev.map((stop) =>
+        stop.completedVisitId === resolvedVisitId ||
+        stop.completedVisitId === orderOrVisitId
+          ? { ...stop, completedVisitId: undefined }
+          : stop
+      )
     );
 
-    if (userRole === 'admin' && targetVisit?.purchaseOrder) {
-      logAdminAction(
-        'HAPUS_ORDER',
-        targetVisit.purchaseOrder.poNumber,
-        `Admin menghapus order ${targetVisit.purchaseOrder.poNumber} dari ${targetVisit.storeName} senilai ${formatIdr(targetVisit.purchaseOrder.netAmountIdr)}`
-      );
+    // Hapus dari Firestore (baik berdasarkan doc ID maupun field id/purchaseOrder yang cocok)
+    deleteDoc(doc(db, 'Visits', resolvedVisitId)).catch((err) =>
+      console.warn('Firestore delete notice:', err)
+    );
+    if (orderOrVisitId !== resolvedVisitId) {
+      deleteDoc(doc(db, 'Visits', orderOrVisitId)).catch(() => {});
+    }
+    if (resolvedPoId) {
+      deleteDoc(doc(db, 'Orders', resolvedPoId)).catch(() => {});
+    }
+
+    getDocs(collection(db, 'Visits'))
+      .then((snap) => {
+        snap.docs.forEach((d) => {
+          const data = d.data() as Record<string, unknown>;
+          const po = data.purchaseOrder as Record<string, unknown> | undefined;
+          const matchesDoc =
+            d.id === orderOrVisitId ||
+            d.id === resolvedVisitId ||
+            data.id === orderOrVisitId ||
+            data.id === resolvedVisitId ||
+            (po &&
+              (po.id === orderOrVisitId ||
+                po.id === resolvedPoId ||
+                po.poNumber === orderOrVisitId ||
+                (resolvedPoNumber && po.poNumber === resolvedPoNumber)));
+          if (matchesDoc) {
+            deleteDoc(d.ref).catch((err) =>
+              console.warn('Firestore matched visit delete notice:', err)
+            );
+          }
+        });
+      })
+      .catch((err) => console.warn('Firestore delete scan notice:', err));
+
+    if (userRole === 'admin' && targetVisit) {
+      if (targetVisit.purchaseOrder) {
+        logAdminAction(
+          'HAPUS_ORDER',
+          targetVisit.purchaseOrder.poNumber,
+          `Admin menghapus order ${targetVisit.purchaseOrder.poNumber} dari ${targetVisit.storeName} senilai ${formatIdr(targetVisit.purchaseOrder.netAmountIdr)}`
+        );
+      } else {
+        logAdminAction(
+          'HAPUS_ORDER',
+          targetVisit.visitCode || targetVisit.storeName,
+          `Admin menghapus catatan kunjungan ${targetVisit.storeName} (${targetVisit.date})`
+        );
+      }
     }
   };
 
@@ -1103,6 +1209,19 @@ export default function App() {
       )
     );
 
+    if (targetVisit?.purchaseOrder) {
+      setDoc(
+        doc(db, 'Visits', targetVisit.id),
+        {
+          purchaseOrder: {
+            ...targetVisit.purchaseOrder,
+            status: nextStatus,
+          },
+        },
+        { merge: true }
+      ).catch((err) => console.warn('Firestore status update notice:', err));
+    }
+
     if (userRole === 'admin' && targetVisit?.purchaseOrder) {
       const isApproved = nextStatus === OrderStatus.APPROVED;
       logAdminAction(
@@ -1116,7 +1235,7 @@ export default function App() {
   const handleClearAllSalesRecords = () => {
     setVisits([]);
     try {
-      localStorage.removeItem(VISITS_STORAGE_KEY);
+      localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify([]));
     } catch {
       // ignore
     }
@@ -1130,6 +1249,24 @@ export default function App() {
         lastOutcome: undefined,
       }))
     );
+
+    getDocs(collection(db, 'Visits'))
+      .then((snap) => {
+        snap.docs.forEach((d) => {
+          deleteDoc(d.ref).catch((err) =>
+            console.warn('Firestore clear visit notice:', err)
+          );
+        });
+      })
+      .catch((err) => console.warn('Firestore clear visits notice:', err));
+
+    if (userRole === 'admin') {
+      logAdminAction(
+        'HAPUS_ORDER',
+        'Semua Record Sales',
+        'Admin mereset dan menghapus seluruh riwayat transaksi & kunjungan sales'
+      );
+    }
   };
 
   const handleAddSalesPerson = (newPerson: SalesRepresentative) => {

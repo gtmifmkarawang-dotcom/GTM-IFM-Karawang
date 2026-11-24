@@ -33,7 +33,7 @@ interface StoreDirectoryViewProps {
   onOpenNewStoreModal?: () => void;
   userRole?: 'sales' | 'admin';
   onEditStore?: (store: Store) => void;
-  onDeleteStore?: (storeId: string) => void;
+  onDeleteStore?: (storeId: string) => void | Promise<void>;
 }
 
 export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
@@ -93,6 +93,10 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
   const [isEditGettingGps, setIsEditGettingGps] = useState(false);
   const [editFormError, setEditFormError] = useState<string | null>(null);
 
+  // Delete confirmation modal state (avoids blocked window.confirm in iframe)
+  const [deletingStore, setDeletingStore] = useState<Store | null>(null);
+  const [isDeletingStore, setIsDeletingStore] = useState(false);
+
   useEffect(() => {
     if (availableAreas.length > 0 && !availableAreas.includes(district)) {
       setDistrict(availableAreas[0]);
@@ -119,7 +123,7 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
-      alert('Browser tidak mendukung pendeteksian lokasi GPS.');
+      setFormError('Browser tidak mendukung pendeteksian lokasi GPS.');
       return;
     }
     setIsGettingGps(true);
@@ -196,7 +200,7 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
 
   const handleGetEditLocation = () => {
     if (!navigator.geolocation) {
-      alert('Browser tidak mendukung pendeteksian lokasi GPS.');
+      setEditFormError('Browser tidak mendukung pendeteksian lokasi GPS.');
       return;
     }
     setIsEditGettingGps(true);
@@ -250,17 +254,22 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
   };
 
   const handleDeleteStore = (store: Store) => {
-    if (
-      window.confirm(
-        `Apakah Anda yakin ingin menghapus data toko "${store.name}" (${store.storeCode})?\n\nTindakan ini khusus admin dan akan menghapus data toko dari sistem GTM Karawang.`
-      )
-    ) {
+    setDeletingStore(store);
+  };
+
+  const handleConfirmDeleteStore = async () => {
+    if (!deletingStore) return;
+    setIsDeletingStore(true);
+    try {
       if (onDeleteStore) {
-        onDeleteStore(store.id);
+        await onDeleteStore(deletingStore.id);
       }
-      if (activeStore && activeStore.id === store.id) {
+      if (activeStore && activeStore.id === deletingStore.id) {
         setActiveStore(null);
       }
+      setDeletingStore(null);
+    } finally {
+      setIsDeletingStore(false);
     }
   };
 
@@ -994,6 +1003,67 @@ export const StoreDirectoryView: React.FC<StoreDirectoryViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Store Confirmation Modal (Khusus Admin) */}
+      {deletingStore && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in duration-150">
+            <div className="p-5 bg-rose-50/90 border-b border-rose-100 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Konfirmasi Hapus Toko
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Tindakan ini khusus Admin dan akan menghapus toko secara permanen dari direktori &amp; database Firestore.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingStore(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <p className="text-sm font-bold text-slate-900">{deletingStore.name}</p>
+                <p className="font-mono text-slate-600">
+                  {deletingStore.storeCode} · {deletingStore.category}
+                </p>
+                <p className="text-slate-500">
+                  {deletingStore.district} · Pemilik: {deletingStore.ownerName}
+                </p>
+                <p className="text-slate-400 truncate">{deletingStore.address}</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeletingStore}
+                  onClick={() => setDeletingStore(null)}
+                  className="min-h-[42px] px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer disabled:opacity-60"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingStore}
+                  onClick={handleConfirmDeleteStore}
+                  className="min-h-[42px] px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isDeletingStore ? 'Menghapus...' : 'Ya, Hapus Toko'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

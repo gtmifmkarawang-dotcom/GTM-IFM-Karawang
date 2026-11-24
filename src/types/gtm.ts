@@ -54,6 +54,8 @@ export interface SalesRepresentative {
   dailyOrderTargetIdr: number;
   monthlyVisitTarget?: number;
   monthlyOrderTargetIdr?: number;
+  targetPeriod?: string; // 'YYYY-MM'
+  monthlyTargetsByPeriod?: Record<string, number>;
   isActive?: boolean;
   joinDate?: string;
 }
@@ -87,6 +89,8 @@ export interface ProductSKU {
   name: string;
   category: string;
   defaultUnit: OrderUnit;
+  pcsPerCtn?: number;
+  pcsPerRcg?: number;
   units: {
     unit: OrderUnit;
     priceIdr: number;

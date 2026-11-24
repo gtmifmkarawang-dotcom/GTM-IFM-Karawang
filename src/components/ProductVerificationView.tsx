@@ -234,7 +234,9 @@ export const ProductVerificationView: React.FC<
     skuCode: '',
     category: 'Snack Ekstrudat',
     harga: 140000,
-    harga_perusahaan_rcg: 17500,
+    pcs_per_ctn: 40,
+    pcs_per_rcg: 10,
+    harga_perusahaan_rcg: 35000,
     harga_perusahaan_pcs: 3500,
     harga_jual: 150000,
     unit: 'CTN',
@@ -248,6 +250,8 @@ export const ProductVerificationView: React.FC<
     skuCode: string;
     category: string;
     harga: number; // HPP per CTN/Karton
+    pcs_per_ctn: number; // Jumlah Pcs dalam 1 CTN
+    pcs_per_rcg: number; // Jumlah Pcs dalam 1 RCG
     harga_perusahaan_rcg: number; // HPP per RCG
     harga_perusahaan_pcs: number; // HPP per Pcs
     harga_jual: number;
@@ -257,6 +261,10 @@ export const ProductVerificationView: React.FC<
   } | null>(null);
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const handleOpenEditProduct = (docItem: RawFirestoreDoc) => {
     const data = docItem.data;
@@ -264,6 +272,28 @@ export const ProductVerificationView: React.FC<
     const sku = pickStringField(data, ['skuCode', 'sku', 'code', 'kode', 'barcode']) || '';
     const cat = pickStringField(data, ['category', 'kategori']) || 'Snack Indofood';
     const hpp = pickNumberField(data, ['harga', 'harga_perusahaan', 'price', 'hargaPerusahaan']) || 120000;
+    const pcsPerCtn =
+      pickNumberField(data, [
+        'pcs_per_ctn',
+        'pcsPerCtn',
+        'isi_ctn',
+        'qty_per_ctn',
+        'pcs_per_karton',
+      ]) || 40;
+    const pcsPerRcg =
+      pickNumberField(data, [
+        'pcs_per_rcg',
+        'pcsPerRcg',
+        'isi_rcg',
+        'qty_per_rcg',
+      ]) || 10;
+    const hppPcs =
+      pickNumberField(data, [
+        'harga_perusahaan_pcs',
+        'harga_pcs',
+        'hargaPcs',
+        'companyPricePcs',
+      ]) ?? Math.round(hpp / Math.max(1, pcsPerCtn));
     const hppRcg =
       pickNumberField(data, [
         'harga_perusahaan_rcg',
@@ -271,14 +301,7 @@ export const ProductVerificationView: React.FC<
         'hargaRcg',
         'companyPriceRcg',
         'harga_renceng',
-      ]) ?? Math.round(hpp / 8);
-    const hppPcs =
-      pickNumberField(data, [
-        'harga_perusahaan_pcs',
-        'harga_pcs',
-        'hargaPcs',
-        'companyPricePcs',
-      ]) ?? Math.round(hpp / 40);
+      ]) ?? Math.round((hpp / Math.max(1, pcsPerCtn)) * Math.max(1, pcsPerRcg));
     const hj = pickNumberField(data, ['harga_jual', 'hargaJual']) || Math.round((hpp * 1.065) / 500) * 500;
     const unit = pickStringField(data, ['unit', 'satuan', 'uom']) || 'CTN';
     const supplier = pickStringField(data, ['supplier', 'nama_supplier']) || 'PT Indofood Fortuna Makmur (IFM)';
@@ -290,6 +313,8 @@ export const ProductVerificationView: React.FC<
       skuCode: sku,
       category: cat,
       harga: hpp,
+      pcs_per_ctn: pcsPerCtn,
+      pcs_per_rcg: pcsPerRcg,
       harga_perusahaan_rcg: hppRcg,
       harga_perusahaan_pcs: hppPcs,
       harga_jual: hj,
@@ -312,10 +337,12 @@ export const ProductVerificationView: React.FC<
 
     try {
       const hpp = Number(editingProduct.harga) || 120000;
-      const hppRcg =
-        Number(editingProduct.harga_perusahaan_rcg) || Math.round(hpp / 8);
+      const pcsPerCtn = Math.max(1, Number(editingProduct.pcs_per_ctn) || 40);
+      const pcsPerRcg = Math.max(1, Number(editingProduct.pcs_per_rcg) || 10);
       const hppPcs =
-        Number(editingProduct.harga_perusahaan_pcs) || Math.round(hpp / 40);
+        Number(editingProduct.harga_perusahaan_pcs) || Math.round(hpp / pcsPerCtn);
+      const hppRcg =
+        Number(editingProduct.harga_perusahaan_rcg) || Math.round((hpp / pcsPerCtn) * pcsPerRcg);
       const hj = Number(editingProduct.harga_jual) || Math.round((hpp * 1.065) / 500) * 500;
 
       const updateData: Record<string, unknown> = {
@@ -327,6 +354,10 @@ export const ProductVerificationView: React.FC<
         category: editingProduct.category.trim(),
         harga: hpp,
         harga_perusahaan: hpp,
+        pcs_per_ctn: pcsPerCtn,
+        pcsPerCtn: pcsPerCtn,
+        pcs_per_rcg: pcsPerRcg,
+        pcsPerRcg: pcsPerRcg,
         harga_perusahaan_rcg: hppRcg,
         harga_rcg: hppRcg,
         harga_perusahaan_pcs: hppPcs,
@@ -362,7 +393,7 @@ export const ProductVerificationView: React.FC<
         onLogAction(
           'EDIT_PRODUK',
           editingProduct.namaProduct.trim(),
-          `Admin mengubah produk "${editingProduct.namaProduct.trim()}" (HPP CTN: Rp ${hpp.toLocaleString('id-ID')}, HPP RCG: Rp ${hppRcg.toLocaleString('id-ID')}, HPP Pcs: Rp ${hppPcs.toLocaleString('id-ID')}, Jual: Rp ${hj.toLocaleString('id-ID')})`
+          `Admin mengubah produk "${editingProduct.namaProduct.trim()}" (${pcsPerCtn} Pcs/CTN, ${pcsPerRcg} Pcs/RCG · HPP CTN: Rp ${hpp.toLocaleString('id-ID')}, HPP RCG: Rp ${hppRcg.toLocaleString('id-ID')}, HPP Pcs: Rp ${hppPcs.toLocaleString('id-ID')}, Jual: Rp ${hj.toLocaleString('id-ID')})`
         );
       }
 
@@ -384,10 +415,12 @@ export const ProductVerificationView: React.FC<
     setAddError(null);
     try {
       const hpp = Number(addForm.harga) || 120000;
-      const hppRcg =
-        Number(addForm.harga_perusahaan_rcg) || Math.round(hpp / 8);
+      const pcsPerCtn = Math.max(1, Number(addForm.pcs_per_ctn) || 40);
+      const pcsPerRcg = Math.max(1, Number(addForm.pcs_per_rcg) || 10);
       const hppPcs =
-        Number(addForm.harga_perusahaan_pcs) || Math.round(hpp / 40);
+        Number(addForm.harga_perusahaan_pcs) || Math.round(hpp / pcsPerCtn);
+      const hppRcg =
+        Number(addForm.harga_perusahaan_rcg) || Math.round((hpp / pcsPerCtn) * pcsPerRcg);
       const hargaJual =
         Number(addForm.harga_jual) || Math.round((hpp * 1.065) / 500) * 500;
 
@@ -404,6 +437,10 @@ export const ProductVerificationView: React.FC<
         category: addForm.category.trim() || 'Snack Indofood',
         harga: hpp,
         harga_perusahaan: hpp,
+        pcs_per_ctn: pcsPerCtn,
+        pcsPerCtn: pcsPerCtn,
+        pcs_per_rcg: pcsPerRcg,
+        pcsPerRcg: pcsPerRcg,
         harga_perusahaan_rcg: hppRcg,
         harga_rcg: hppRcg,
         harga_perusahaan_pcs: hppPcs,
@@ -440,7 +477,7 @@ export const ProductVerificationView: React.FC<
         onLogAction(
           'TAMBAH_PRODUK',
           addForm.namaProduct.trim(),
-          `Admin menambahkan produk baru "${addForm.namaProduct.trim()}" (ID: ${newDocId}, HPP: Rp ${hpp.toLocaleString('id-ID')}, Jual: Rp ${hargaJual.toLocaleString('id-ID')})`
+          `Admin menambahkan produk baru "${addForm.namaProduct.trim()}" (${pcsPerCtn} Pcs/CTN, ID: ${newDocId}, HPP CTN: Rp ${hpp.toLocaleString('id-ID')}, Jual: Rp ${hargaJual.toLocaleString('id-ID')})`
         );
       }
 
@@ -450,7 +487,9 @@ export const ProductVerificationView: React.FC<
         skuCode: '',
         category: 'Snack Ekstrudat',
         harga: 140000,
-        harga_perusahaan_rcg: 17500,
+        pcs_per_ctn: 40,
+        pcs_per_rcg: 10,
+        harga_perusahaan_rcg: 35000,
         harga_perusahaan_pcs: 3500,
         harga_jual: 150000,
         unit: 'CTN',
@@ -465,14 +504,10 @@ export const ProductVerificationView: React.FC<
     }
   };
 
-  const handleDeleteProduct = async (docId: string, productName: string) => {
-    if (
-      !window.confirm(
-        `Apakah Anda yakin ingin menghapus produk "${productName}" dari koleksi /Product?`
-      )
-    ) {
-      return;
-    }
+  const confirmDeleteProduct = async () => {
+    if (!pendingDeleteProduct) return;
+    const { id: docId, name: productName } = pendingDeleteProduct;
+    setPendingDeleteProduct(null);
 
     try {
       await deleteDoc(doc(db, 'Product', docId));
@@ -914,7 +949,7 @@ export const ProductVerificationView: React.FC<
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteProduct(item.id, item.namaProduct)}
+                          onClick={() => setPendingDeleteProduct({ id: item.id, name: item.namaProduct })}
                           className="px-2 py-0.5 rounded-lg border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
                           title="Hapus produk ini"
                         >
@@ -1260,12 +1295,19 @@ export const ProductVerificationView: React.FC<
                         </>
                       )}
                       {Boolean(
-                        docItem.data.harga_perusahaan_rcg ||
+                        docItem.data.pcs_per_ctn ||
+                          docItem.data.pcsPerCtn ||
+                          docItem.data.harga_perusahaan_rcg ||
                           docItem.data.harga_rcg ||
                           docItem.data.harga_perusahaan_pcs ||
                           docItem.data.harga_pcs
                       ) && (
-                        <div className="flex sm:justify-end gap-1 mt-1 text-[10px] font-mono">
+                        <div className="flex flex-wrap sm:justify-end gap-1 mt-1 text-[10px] font-mono">
+                          {Boolean(docItem.data.pcs_per_ctn || docItem.data.pcsPerCtn) && (
+                            <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 font-semibold">
+                              Isi: {Number(docItem.data.pcs_per_ctn || docItem.data.pcsPerCtn)} Pcs/CTN
+                            </span>
+                          )}
                           {Boolean(docItem.data.harga_perusahaan_rcg || docItem.data.harga_rcg) && (
                             <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-semibold">
                               RCG: {formatIdr(Number(docItem.data.harga_perusahaan_rcg || docItem.data.harga_rcg))}
@@ -1294,7 +1336,7 @@ export const ProductVerificationView: React.FC<
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteProduct(docItem.id, title)}
+                            onClick={() => setPendingDeleteProduct({ id: docItem.id, name: title })}
                             className="min-h-[40px] px-3 py-1.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
                             title="Hapus produk ini dari database"
                           >
@@ -1442,6 +1484,116 @@ export const ProductVerificationView: React.FC<
                 </div>
               </div>
 
+              {/* Group: Isi Kemasan (Pcs per CTN & Pcs per RCG) */}
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-1.5">
+                  <span className="text-xs font-bold text-blue-950 uppercase tracking-wider">
+                    Konversi Isi Kemasan (Pcs per CTN & RCG)
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900 font-mono">
+                    1 CTN = {addForm.pcs_per_ctn} Pcs ({(addForm.pcs_per_ctn / Math.max(1, addForm.pcs_per_rcg)).toFixed(1).replace(/\.0$/, '')} RCG)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Jumlah Pcs per CTN (Karton) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={addForm.pcs_per_ctn}
+                      onChange={(e) => {
+                        const pcsCtn = Math.max(1, Number(e.target.value) || 1);
+                        setAddForm((prev) => ({
+                          ...prev,
+                          pcs_per_ctn: pcsCtn,
+                          harga_perusahaan_pcs: Math.round(prev.harga / pcsCtn),
+                          harga_perusahaan_rcg: Math.round(
+                            (prev.harga / pcsCtn) * Math.max(1, prev.pcs_per_rcg)
+                          ),
+                        }));
+                      }}
+                      className="w-full min-h-[40px] px-3 py-1.5 text-xs font-mono font-bold bg-white border border-blue-300 rounded-xl focus:outline-none focus:border-blue-700"
+                    />
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      {[24, 30, 40, 60, 80, 100, 120].map((preset) => (
+                        <button
+                          key={`add-pcs-${preset}`}
+                          type="button"
+                          onClick={() =>
+                            setAddForm((prev) => ({
+                              ...prev,
+                              pcs_per_ctn: preset,
+                              harga_perusahaan_pcs: Math.round(prev.harga / preset),
+                              harga_perusahaan_rcg: Math.round(
+                                (prev.harga / preset) * Math.max(1, prev.pcs_per_rcg)
+                              ),
+                            }))
+                          }
+                          className={`text-[10px] px-1.5 py-0.5 rounded border font-mono cursor-pointer ${
+                            addForm.pcs_per_ctn === preset
+                              ? 'bg-blue-700 text-white border-blue-700 font-bold'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Isi Pcs per 1 RCG (Renceng)
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={addForm.pcs_per_rcg}
+                      onChange={(e) => {
+                        const pcsRcg = Math.max(1, Number(e.target.value) || 1);
+                        setAddForm((prev) => ({
+                          ...prev,
+                          pcs_per_rcg: pcsRcg,
+                          harga_perusahaan_rcg: Math.round(
+                            (prev.harga / Math.max(1, prev.pcs_per_ctn)) * pcsRcg
+                          ),
+                        }));
+                      }}
+                      className="w-full min-h-[40px] px-3 py-1.5 text-xs font-mono font-bold bg-white border border-blue-300 rounded-xl focus:outline-none focus:border-blue-700"
+                    />
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      {[5, 8, 10, 12].map((preset) => (
+                        <button
+                          key={`add-rcg-${preset}`}
+                          type="button"
+                          onClick={() =>
+                            setAddForm((prev) => ({
+                              ...prev,
+                              pcs_per_rcg: preset,
+                              harga_perusahaan_rcg: Math.round(
+                                (prev.harga / Math.max(1, prev.pcs_per_ctn)) * preset
+                              ),
+                            }))
+                          }
+                          className={`text-[10px] px-1.5 py-0.5 rounded border font-mono cursor-pointer ${
+                            addForm.pcs_per_rcg === preset
+                              ? 'bg-blue-700 text-white border-blue-700 font-bold'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                          }`}
+                        >
+                          {preset} Pcs/RCG
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Group: HPP Perusahaan per Kemasan */}
               <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
@@ -1470,18 +1622,24 @@ export const ProductVerificationView: React.FC<
                         value={addForm.harga}
                         onChange={(e) => {
                           const val = Number(e.target.value) || 0;
-                          setAddForm((prev) => ({
-                            ...prev,
-                            harga: val,
-                            harga_perusahaan_rcg: Math.round(val / 8),
-                            harga_perusahaan_pcs: Math.round(val / 40),
-                            harga_jual: Math.round((val * 1.065) / 500) * 500,
-                          }));
+                          setAddForm((prev) => {
+                            const pcsCtn = Math.max(1, prev.pcs_per_ctn || 40);
+                            const pcsRcg = Math.max(1, prev.pcs_per_rcg || 10);
+                            return {
+                              ...prev,
+                              harga: val,
+                              harga_perusahaan_rcg: Math.round((val / pcsCtn) * pcsRcg),
+                              harga_perusahaan_pcs: Math.round(val / pcsCtn),
+                              harga_jual: Math.round((val * 1.065) / 500) * 500,
+                            };
+                          });
                         }}
                         className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700 font-mono font-bold"
                       />
                     </div>
-                    <span className="text-[10px] text-slate-500 mt-0.5 block">1 Dus (40 pcs)</span>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      1 Dus ({addForm.pcs_per_ctn} pcs)
+                    </span>
                   </div>
 
                   <div>
@@ -1494,12 +1652,15 @@ export const ProductVerificationView: React.FC<
                         onClick={() => {
                           setAddForm((prev) => ({
                             ...prev,
-                            harga_perusahaan_rcg: Math.round(prev.harga / 8),
+                            harga_perusahaan_rcg: Math.round(
+                              (prev.harga / Math.max(1, prev.pcs_per_ctn)) *
+                                Math.max(1, prev.pcs_per_rcg)
+                            ),
                           }));
                         }}
                         className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
                       >
-                        Auto (÷8)
+                        Auto Hitung
                       </button>
                     </div>
                     <div className="relative">
@@ -1520,7 +1681,9 @@ export const ProductVerificationView: React.FC<
                         className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700 font-mono font-bold"
                       />
                     </div>
-                    <span className="text-[10px] text-slate-500 mt-0.5 block">1 Renceng (10 pcs)</span>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      1 Renceng ({addForm.pcs_per_rcg} pcs)
+                    </span>
                   </div>
 
                   <div>
@@ -1533,12 +1696,14 @@ export const ProductVerificationView: React.FC<
                         onClick={() => {
                           setAddForm((prev) => ({
                             ...prev,
-                            harga_perusahaan_pcs: Math.round(prev.harga / 40),
+                            harga_perusahaan_pcs: Math.round(
+                              prev.harga / Math.max(1, prev.pcs_per_ctn)
+                            ),
                           }));
                         }}
                         className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
                       >
-                        Auto (÷40)
+                        Auto (÷{addForm.pcs_per_ctn})
                       </button>
                     </div>
                     <div className="relative">
@@ -1736,6 +1901,132 @@ export const ProductVerificationView: React.FC<
                 </div>
               </div>
 
+              {/* Group: Isi Kemasan (Pcs per CTN & Pcs per RCG) */}
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-1.5">
+                  <span className="text-xs font-bold text-blue-950 uppercase tracking-wider">
+                    Konversi Isi Kemasan (Pcs per CTN & RCG)
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900 font-mono">
+                    1 CTN = {editingProduct.pcs_per_ctn} Pcs ({(editingProduct.pcs_per_ctn / Math.max(1, editingProduct.pcs_per_rcg)).toFixed(1).replace(/\.0$/, '')} RCG)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Jumlah Pcs per CTN (Karton) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={editingProduct.pcs_per_ctn}
+                      onChange={(e) => {
+                        const pcsCtn = Math.max(1, Number(e.target.value) || 1);
+                        setEditingProduct((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                pcs_per_ctn: pcsCtn,
+                                harga_perusahaan_pcs: Math.round(prev.harga / pcsCtn),
+                                harga_perusahaan_rcg: Math.round(
+                                  (prev.harga / pcsCtn) * Math.max(1, prev.pcs_per_rcg)
+                                ),
+                              }
+                            : null
+                        );
+                      }}
+                      className="w-full min-h-[40px] px-3 py-1.5 text-xs font-mono font-bold bg-white border border-blue-300 rounded-xl focus:outline-none focus:border-blue-700"
+                    />
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      {[24, 30, 40, 60, 80, 100, 120].map((preset) => (
+                        <button
+                          key={`edit-pcs-${preset}`}
+                          type="button"
+                          onClick={() =>
+                            setEditingProduct((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    pcs_per_ctn: preset,
+                                    harga_perusahaan_pcs: Math.round(prev.harga / preset),
+                                    harga_perusahaan_rcg: Math.round(
+                                      (prev.harga / preset) * Math.max(1, prev.pcs_per_rcg)
+                                    ),
+                                  }
+                                : null
+                            )
+                          }
+                          className={`text-[10px] px-1.5 py-0.5 rounded border font-mono cursor-pointer ${
+                            editingProduct.pcs_per_ctn === preset
+                              ? 'bg-blue-700 text-white border-blue-700 font-bold'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Isi Pcs per 1 RCG (Renceng)
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={editingProduct.pcs_per_rcg}
+                      onChange={(e) => {
+                        const pcsRcg = Math.max(1, Number(e.target.value) || 1);
+                        setEditingProduct((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                pcs_per_rcg: pcsRcg,
+                                harga_perusahaan_rcg: Math.round(
+                                  (prev.harga / Math.max(1, prev.pcs_per_ctn)) * pcsRcg
+                                ),
+                              }
+                            : null
+                        );
+                      }}
+                      className="w-full min-h-[40px] px-3 py-1.5 text-xs font-mono font-bold bg-white border border-blue-300 rounded-xl focus:outline-none focus:border-blue-700"
+                    />
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      {[5, 8, 10, 12].map((preset) => (
+                        <button
+                          key={`edit-rcg-${preset}`}
+                          type="button"
+                          onClick={() =>
+                            setEditingProduct((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    pcs_per_rcg: preset,
+                                    harga_perusahaan_rcg: Math.round(
+                                      (prev.harga / Math.max(1, prev.pcs_per_ctn)) * preset
+                                    ),
+                                  }
+                                : null
+                            )
+                          }
+                          className={`text-[10px] px-1.5 py-0.5 rounded border font-mono cursor-pointer ${
+                            editingProduct.pcs_per_rcg === preset
+                              ? 'bg-blue-700 text-white border-blue-700 font-bold'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50'
+                          }`}
+                        >
+                          {preset} Pcs/RCG
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Group: Harga Pokok / HPP Perusahaan Berdasarkan Kemasan */}
               <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
@@ -1767,20 +2058,23 @@ export const ProductVerificationView: React.FC<
                         value={editingProduct.harga}
                         onChange={(e) => {
                           const val = Number(e.target.value) || 0;
-                          setEditingProduct((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  harga: val,
-                                }
-                              : null
-                          );
+                          setEditingProduct((prev) => {
+                            if (!prev) return null;
+                            const pcsCtn = Math.max(1, prev.pcs_per_ctn || 40);
+                            const pcsRcg = Math.max(1, prev.pcs_per_rcg || 10);
+                            return {
+                              ...prev,
+                              harga: val,
+                              harga_perusahaan_pcs: Math.round(val / pcsCtn),
+                              harga_perusahaan_rcg: Math.round((val / pcsCtn) * pcsRcg),
+                            };
+                          });
                         }}
                         className="w-full min-h-[42px] pl-8 pr-2.5 py-1.5 text-xs font-mono font-bold text-teal-900 bg-white border border-teal-300 rounded-xl focus:outline-none focus:border-teal-700"
                       />
                     </div>
                     <span className="text-[10px] text-slate-500 mt-0.5 block">
-                      1 Karton Dus (40 pcs)
+                      1 Karton Dus ({editingProduct.pcs_per_ctn} pcs)
                     </span>
                   </div>
 
@@ -1793,15 +2087,17 @@ export const ProductVerificationView: React.FC<
                       <button
                         type="button"
                         onClick={() => {
-                          const autoVal = Math.round(editingProduct.harga / 8);
+                          const pcsCtn = Math.max(1, editingProduct.pcs_per_ctn || 40);
+                          const pcsRcg = Math.max(1, editingProduct.pcs_per_rcg || 10);
+                          const autoVal = Math.round((editingProduct.harga / pcsCtn) * pcsRcg);
                           setEditingProduct((prev) =>
                             prev ? { ...prev, harga_perusahaan_rcg: autoVal } : null
                           );
                         }}
                         className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
-                        title="Hitung otomatis dari CTN ÷ 8"
+                        title="Hitung otomatis sesuai jumlah pcs per CTN & RCG"
                       >
-                        Auto (÷8)
+                        Auto Hitung
                       </button>
                     </div>
                     <div className="relative">
@@ -1823,7 +2119,7 @@ export const ProductVerificationView: React.FC<
                       />
                     </div>
                     <span className="text-[10px] text-slate-500 mt-0.5 block">
-                      1 Renceng (10 pcs / 1/8 ctn)
+                      1 Renceng ({editingProduct.pcs_per_rcg} pcs)
                     </span>
                   </div>
 
@@ -1836,15 +2132,16 @@ export const ProductVerificationView: React.FC<
                       <button
                         type="button"
                         onClick={() => {
-                          const autoVal = Math.round(editingProduct.harga / 40);
+                          const pcsCtn = Math.max(1, editingProduct.pcs_per_ctn || 40);
+                          const autoVal = Math.round(editingProduct.harga / pcsCtn);
                           setEditingProduct((prev) =>
                             prev ? { ...prev, harga_perusahaan_pcs: autoVal } : null
                           );
                         }}
                         className="text-[9px] text-blue-700 hover:underline font-bold cursor-pointer"
-                        title="Hitung otomatis dari CTN ÷ 40"
+                        title="Hitung otomatis dari CTN ÷ jumlah pcs per CTN"
                       >
-                        Auto (÷40)
+                        Auto (÷{editingProduct.pcs_per_ctn})
                       </button>
                     </div>
                     <div className="relative">
@@ -1866,7 +2163,7 @@ export const ProductVerificationView: React.FC<
                       />
                     </div>
                     <span className="text-[10px] text-slate-500 mt-0.5 block">
-                      1 Pcs Satuan (1/40 ctn)
+                      1 Pcs Satuan (1/{editingProduct.pcs_per_ctn} ctn)
                     </span>
                   </div>
                 </div>
@@ -1962,6 +2259,48 @@ export const ProductVerificationView: React.FC<
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Produk */}
+      {pendingDeleteProduct && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Konfirmasi Hapus Produk
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Apakah Anda yakin ingin menghapus produk{' '}
+                  <span className="font-bold text-slate-900">
+                    &quot;{pendingDeleteProduct.name}&quot;
+                  </span>{' '}
+                  dari koleksi <span className="font-mono">/Product</span>?
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteProduct(null)}
+                className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteProduct}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus Produk</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
